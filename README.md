@@ -58,10 +58,10 @@ Sideload it on a connected device:
 ```sh
 # 1. Download from Hugging Face
 #    https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm
-#    pick `gemma-4-e2b-it.litertlm`
+#    pick `gemma-4-E2B-it.litertlm`
 
 # 2. Push to the app's private external dir
-adb push gemma-4-e2b-it.litertlm \
+adb push gemma-4-E2B-it.litertlm \
   /sdcard/Android/data/com.spendai.app/files/models/
 ```
 

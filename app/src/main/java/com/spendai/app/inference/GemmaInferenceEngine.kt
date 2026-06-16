@@ -210,6 +210,78 @@ class GemmaInferenceEngine {
     }.flowOn(Dispatchers.IO)
 
     /**
+     * One-shot probe that runs [prompt] against a fresh conversation
+     * with a neutral system instruction, then returns the joined
+     * reply. The production SMS-parser persona (and its
+     * `{ "kind": "ignore" }` fallback) is NOT applied here, so a probe
+     * prompt that asks the model to say a specific string will
+     * actually elicit that string.
+     *
+     * The probe conversation is created on demand and closed after
+     * the call; the long-lived [conversation] used by
+     * [generatePrediction] is untouched.
+     */
+    suspend fun probe(prompt: String): String = withContext(Dispatchers.IO) {
+        require(_state.value is InferenceState.Ready) {
+            "Engine not READY (state=${_state.value}). Call initialize() first."
+        }
+        val cfg = currentConfig ?: InferenceConfig()
+        mutex.withLock {
+            _state.value = InferenceState.Busy
+            val probeConv = try {
+                engine!!.createConversation(buildProbeConfig(cfg))
+            } catch (t: Throwable) {
+                _state.value = InferenceState.Ready
+                throw t
+            }
+            try {
+                probeConv.sendMessage(prompt).toString()
+            } finally {
+                runCatching { probeConv.close() }
+                    .onFailure { Log.w(TAG, "probeConv.close() failed", it) }
+                _state.value = InferenceState.Ready
+            }
+        }
+    }
+
+    /**
+     * Streaming variant of [probe]. Emits each chunk as the model
+     * produces it so the UI can show progressive text.
+     */
+    fun probeStreaming(prompt: String): Flow<String> = flow {
+        require(_state.value is InferenceState.Ready) {
+            "Engine not READY (state=${_state.value}). Call initialize() first."
+        }
+        val cfg = currentConfig ?: InferenceConfig()
+        mutex.withLock {
+            _state.value = InferenceState.Busy
+            val probeConv = try {
+                engine!!.createConversation(buildProbeConfig(cfg))
+            } catch (t: Throwable) {
+                _state.value = InferenceState.Ready
+                throw t
+            }
+            try {
+                probeConv.sendMessageAsync(prompt).collect { chunk -> emit(chunk.toString()) }
+            } finally {
+                runCatching { probeConv.close() }
+                    .onFailure { Log.w(TAG, "probeConv.close() failed", it) }
+                _state.value = InferenceState.Ready
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private fun buildProbeConfig(config: InferenceConfig) = ConversationConfig(
+        systemInstruction = Contents.of(PROBE_SYSTEM_INSTRUCTION),
+        samplerConfig = SamplerConfig(
+            topK = config.topK,
+            topP = config.topP.toDouble(),
+            temperature = config.temperature.toDouble(),
+            seed = 0,
+        ),
+    )
+
+    /**
      * Releases the engine and conversation. Idempotent. After close,
      * the engine must be re-initialized before further use.
      */
@@ -249,5 +321,12 @@ class GemmaInferenceEngine {
                 "Extract transaction details (amount, currency, merchant, timestamp) " +
                 "as a JSON object. If the message is not financial, return " +
                 "{\"kind\":\"ignore\"}."
+
+        // System instruction used by the standalone "I'm online"
+        // probe on the onboarding test screen. Deliberately neutral
+        // so the model follows the literal user prompt instead of
+        // emitting the SMS parser's ignore sentinel.
+        const val PROBE_SYSTEM_INSTRUCTION =
+            "You are a helpful assistant. Follow the user\'s instructions exactly."
     }
 }

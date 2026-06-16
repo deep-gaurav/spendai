@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Minimal stub theme for Phase 1 (no UI). -->
-    <style name="Theme.SpendAi" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      Activity-level host theme. Compose draws the real UI on top of this
+      via MaterialTheme in ui/theme/SpendAiTheme.kt. We only set the
+      window background, status bar appearance, and ensure the activity
+      starts edge-to-edge so the system bars don't inset our content.
+    -->
+    <style name="Theme.SpendAi" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
 </resources>

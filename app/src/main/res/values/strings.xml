@@ -1,4 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SpendAI</string>
+
+    <!-- Onboarding: common -->
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_retry">Retry</string>
+    <string name="onboarding_cancel">Cancel</string>
+
+    <!-- Permissions screen -->
+    <string name="permissions_title">Welcome to SpendAI</string>
+    <string name="permissions_subtitle">On-device expense tracking. No cloud, no analytics.</string>
+    <string name="permissions_section_required">Required</string>
+    <string name="permissions_section_optional">Optional</string>
+    <string name="permission_sms_title">Read incoming bank SMS</string>
+    <string name="permission_sms_subtitle">We only process messages from your saved financial sources, entirely on this device.</string>
+    <string name="permission_notifications_title">Background alerts</string>
+    <string name="permission_notifications_subtitle">Lets SpendAI tell you when the daily parser has finished or needs attention.</string>
+    <string name="permissions_granted">Granted</string>
+    <string name="permissions_denied">Not granted</string>
+    <string name="permissions_rationale_title">SpendAI needs your SMS permission</string>
+    <string name="permissions_rationale_body">Without the SMS permission, SpendAI cannot read your transaction messages. You can grant it from Android Settings.</string>
+    <string name="permissions_open_settings">Open settings</string>
+    <string name="permissions_blocked_hint">SMS permission is required to continue.</string>
+
+    <!-- Download screen -->
+    <string name="download_title">Download Gemma 4 E2B</string>
+    <string name="download_subtitle">About 2.58 GB. One-time download, kept only on this device.</string>
+    <string name="download_idle">Ready to start</string>
+    <string name="download_running">Downloading…</string>
+    <string name="download_done">Download complete</string>
+    <string name="download_progress_unknown">Preparing…</string>
+    <string name="download_start">Start download</string>
+    <string name="download_skip_already_present">Model is already on this device</string>
+    <string name="download_error_generic">Download failed. Check your connection and try again.</string>
+    <string name="download_speed_format">%1$s • %2$s/s</string>
+    <string name="download_eta_format">%1$s left</string>
+    <string name="download_bytes_format">%1$s of %2$s</string>
+    <string name="download_source_label">Source</string>
+    <string name="download_source_value">huggingface.co/litert-community/gemma-4-E2B-it-litert-lm</string>
+
+    <!-- Test screen -->
+    <string name="test_title">Verify the model works</string>
+    <string name="test_subtitle">SpendAI asks the model to confirm it is reachable, then checks the response.</string>
+    <string name="test_idle">Tap to start the check.</string>
+    <string name="test_initializing">Loading model on this device…</string>
+    <string name="test_asking">Asking the model…</string>
+    <string name="test_prompt_label">Strict prompt</string>
+    <string name="test_pass">Model responded with the expected string.</string>
+    <string name="test_fail">The model\'s reply didn\'t match. You can retry, or continue anyway.</string>
+    <string name="test_run">Run check</string>
+    <string name="test_continue_anyway">Continue anyway</string>
+    <string name="test_response_label">Model reply</string>
+    <string name="test_response_value_format">%1$s</string>
+    <string name="test_engine_status_format">Engine: %1$s</string>
+
+    <!-- Home screen -->
+    <string name="home_title">SpendAI</string>
+    <string name="home_subtitle">You\'re all set. The main app ships in the next release.</string>
+    <string name="home_overflow_rerun">Re-run setup</string>
 </resources>

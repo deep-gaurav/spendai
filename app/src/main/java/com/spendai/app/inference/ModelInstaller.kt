@@ -14,7 +14,7 @@ import java.io.FileNotFoundException
  *
  *  1. `$filesDir/models/<modelFileName>` — the production path. Users
  *     sideload via
- *       `adb push gemma-4-e2b-it.litertlm /sdcard/Android/data/com.spendai.app/files/models/`
+ *       `adb push gemma-4-E2B-it.litertlm /sdcard/Android/data/com.spendai.app/files/models/`
  *     and we read from there. The file lives in the app's private
  *     external dir so the user can manage it without root.
  *  2. `assets/models/<modelFileName>` — dev-only. Streams the bundled

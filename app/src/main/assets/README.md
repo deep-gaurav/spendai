@@ -10,7 +10,7 @@ The Hugging Face community publishes LiteRT-LM-ready builds:
 
 - <https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm>
 
-Download the `.litertlm` file (typically `gemma-4-e2b-it.litertlm`, ~2.58 GB)
+Download the `.litertlm` file (typically `gemma-4-E2B-it.litertlm`, ~2.58 GB)
 from that page.
 
 ## Sideload workflow
@@ -20,7 +20,7 @@ internal storage on a connected device:
 
 ```sh
 # Plug in a device with USB debugging enabled, then:
-adb push gemma-4-e2b-it.litertlm \
+adb push gemma-4-E2B-it.litertlm \
   /sdcard/Android/data/com.spendai.app/files/models/
 ```
 

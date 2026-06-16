@@ -12,6 +12,11 @@
     "parsing failed" or "model ready" status notifications. Harmless on older
     versions.
 
+  - INTERNET: needed by the Phase 1.5 onboarding flow to download the
+    .litertlm model from HuggingFace. After onboarding completes, the app
+    can run fully offline; the permission is declared and not revoked so
+    future releases can update the model in place.
+
   Native libraries
 
   The <uses-native-library> entries below are MANDATORY for the GPU backend
@@ -19,8 +24,10 @@
   them with android:required="false" lets the app fall through to CPU on
   devices where the GPU driver is unavailable.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -34,11 +41,25 @@
         android:theme="@style/Theme.SpendAi"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
-        tools:targetApi="34"
-        xmlns:tools="http://schemas.android.com/tools">
+        tools:targetApi="34">
 
         <uses-native-library android:name="libvndksupport.so" android:required="false" />
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
+        <!--
+          Phase 1.5 onboarding entry point. Hosts the Compose nav graph:
+          permissions -> model download -> model test -> home.
+        -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.SpendAi">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <!--
           SMS receiver.
