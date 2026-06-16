@@ -1,0 +1,57 @@
+[versions]
+# Build tooling
+agp = "8.13.2"
+kotlin = "2.3.21"
+ksp = "2.3.9"
+coroutines = "1.8.1"
+
+# AndroidX
+core-ktx = "1.13.1"
+room = "2.8.4"
+work = "2.9.1"
+androidx-test = "1.6.1"
+androidx-junit = "1.2.1"
+
+# AI / Inference
+litertlm = "0.13.1"
+
+# Test
+junit4 = "4.13.2"
+robolectric = "4.13"
+mockk = "1.13.13"
+turbine = "1.1.0"
+androidx-arch-core-testing = "2.2.0"
+
+[libraries]
+# AndroidX
+androidx-core-ktx         = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
+androidx-room-runtime     = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-ktx         = { module = "androidx.room:room-ktx", version.ref = "room" }
+androidx-room-compiler    = { module = "androidx.room:room-compiler", version.ref = "room" }
+androidx-room-testing     = { module = "androidx.room:room-testing", version.ref = "room" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+androidx-work-testing     = { module = "androidx.work:work-testing", version.ref = "work" }
+
+# Coroutines
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test    = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# AI / Inference
+litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
+
+# Test
+junit4                       = { module = "junit:junit", version.ref = "junit4" }
+robolectric                  = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+mockk                        = { module = "io.mockk:mockk", version.ref = "mockk" }
+mockk-android                = { module = "io.mockk:mockk-android", version.ref = "mockk" }
+turbine                      = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+androidx-test-core           = { module = "androidx.test:core", version.ref = "androidx-test" }
+androidx-test-runner         = { module = "androidx.test:runner", version.ref = "androidx-test" }
+androidx-test-rules          = { module = "androidx.test:rules", version.ref = "androidx-test" }
+androidx-test-ext-junit      = { module = "androidx.test.ext:junit", version.ref = "androidx-junit" }
+androidx-arch-core-testing   = { module = "androidx.arch.core:core-testing", version.ref = "androidx-arch-core-testing" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android      = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+ksp                 = { id = "com.google.devtools.ksp", version.ref = "ksp" }

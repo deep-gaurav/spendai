@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Permissions
+
+  - RECEIVE_SMS / READ_SMS: Android treats these as "dangerous" permissions
+    (group: SMS). On Android 6.0 (API 23) and above, they must be requested at
+    runtime via ActivityCompat.requestPermissions() before the receiver will
+    actually fire. Phase 1 has no UI, so the permissions are declared but the
+    consent screen is a Phase 1.5 follow-up.
+
+  - POST_NOTIFICATIONS: required on Android 13 (API 33) to surface any future
+    "parsing failed" or "model ready" status notifications. Harmless on older
+    versions.
+
+  Native libraries
+
+  The <uses-native-library> entries below are MANDATORY for the GPU backend
+  on Android. LiteRT-LM ships its own OpenCL/Vulkan JNI shims; declaring
+  them with android:required="false" lets the app fall through to CPU on
+  devices where the GPU driver is unavailable.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".SpendAiApp"
+        android:allowBackup="false"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SpendAi"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        tools:targetApi="34"
+        xmlns:tools="http://schemas.android.com/tools">
+
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
+        <!--
+          SMS receiver.
+
+          android:exported="true" is required from Android 12+ to receive
+          system broadcasts. The android:permission attribute restricts
+          who can deliver this broadcast to *only* the system, which
+          prevents malicious apps from forging SMS_RECEIVED intents.
+        -->
+        <receiver
+            android:name=".receiver.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

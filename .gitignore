@@ -1,0 +1,39 @@
+# Build outputs
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+
+# IDE
+.vscode/
+*.swp
+.DS_Store
+
+# Captures
+captures/
+.externalNativeBuild/
+.cxx/
+
+# APK / AAB
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Native / JNI
+*.so
+
+# Keystores (none in Phase 1, but defensive)
+*.jks
+*.keystore
+
+# Tooling caches
+.kotlin/
+
+# Firecrawl scratch
+.firecrawl/
+
+# Local model sideloads (huge, never commit)
+app/src/main/assets/models/*.litertlm
+app/src/main/assets/models/*.task
