@@ -17,30 +17,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.HighlightOff
-import androidx.compose.material.icons.outlined.MailOutline
-import androidx.compose.material.icons.outlined.NotificationsActive
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -48,13 +34,17 @@ import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendai.app.R
+import com.spendai.app.ui.components.BigPrimaryButton
+import com.spendai.app.ui.components.CartoonIcon
+import com.spendai.app.ui.components.OnboardingScaffold
+import com.spendai.app.ui.components.SectionLabel
+import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.setup.SetupViewModel
-import com.spendai.app.ui.theme.SpendAiTheme
+import com.spendai.app.ui.theme.Dimens
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PermissionsScreen(
     setupViewModel: SetupViewModel,
@@ -102,41 +92,50 @@ fun PermissionsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.app_name)) })
-        },
+    OnboardingScaffold(
+        title = stringResource(R.string.app_name),
+        step = 1,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd),
         ) {
+            // Hero illustration
+            CartoonIcon(
+                id = R.drawable.art_sms_mascot,
+                size = 160.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = Dimens.SpaceSm),
+            )
+
             Text(
-                stringResource(R.string.permissions_title),
-                style = MaterialTheme.typography.headlineSmall,
+                text = stringResource(R.string.permissions_title),
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                stringResource(R.string.permissions_subtitle),
+                text = stringResource(R.string.permissions_subtitle),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            SectionHeader(stringResource(R.string.permissions_section_required))
+            SectionLabel(stringResource(R.string.permissions_section_required))
             PermissionRow(
-                icon = Icons.Outlined.MailOutline,
+                iconRes = R.drawable.ic_sms_cartoon,
                 title = stringResource(R.string.permission_sms_title),
                 subtitle = stringResource(R.string.permission_sms_subtitle),
                 granted = ui.smsGranted,
             )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                SectionHeader(stringResource(R.string.permissions_section_optional))
+                SectionLabel(stringResource(R.string.permissions_section_optional))
                 PermissionRow(
-                    icon = Icons.Outlined.NotificationsActive,
+                    iconRes = R.drawable.ic_bell_cartoon,
                     title = stringResource(R.string.permission_notifications_title),
                     subtitle = stringResource(R.string.permission_notifications_subtitle),
                     granted = ui.notificationsGranted,
@@ -144,42 +143,45 @@ fun PermissionsScreen(
             }
 
             if (ui.smsBlocked) {
-                Text(
-                    stringResource(R.string.permissions_rationale_title),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    stringResource(R.string.permissions_rationale_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(
-                    onClick = {
-                        val intent = Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", context.packageName, null),
-                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        context.startActivity(intent)
-                    },
-                ) {
-                    Text(stringResource(R.string.permissions_open_settings))
+                StickerCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+                        Text(
+                            text = stringResource(R.string.permissions_rationale_title),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.permissions_rationale_body),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(Dimens.SpaceXs))
+                        BigPrimaryButton(
+                            onClick = {
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null),
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            },
+                            text = stringResource(R.string.permissions_open_settings),
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Dimens.SpaceXs))
 
-            Button(
+            BigPrimaryButton(
                 onClick = onContinue,
+                text = stringResource(R.string.onboarding_continue),
                 enabled = ui.smsGranted,
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.onboarding_continue))
-            }
+            )
 
             if (!ui.smsGranted && !ui.smsBlocked) {
                 Text(
-                    stringResource(R.string.permissions_blocked_hint),
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(R.string.permissions_blocked_hint),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
@@ -188,64 +190,40 @@ fun PermissionsScreen(
 }
 
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-    )
-}
-
-@Composable
 private fun PermissionRow(
-    icon: ImageVector,
+    iconRes: Int,
     title: String,
     subtitle: String,
     granted: Boolean,
 ) {
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
+    StickerCard {
+        Row(verticalAlignment = Alignment.Top) {
+            CartoonIcon(id = iconRes, size = 56.dp)
+            Spacer(Modifier.size(Dimens.SpaceSm))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    subtitle,
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(Dimens.SpaceXs / 2))
+                Text(
+                    text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            Box(modifier = Modifier.padding(top = 2.dp)) {
-                Icon(
-                    if (granted) Icons.Outlined.CheckCircle else Icons.Outlined.HighlightOff,
-                    contentDescription = null,
-                    tint = if (granted) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            Spacer(Modifier.size(Dimens.SpaceXs))
+            Box(
+                modifier = Modifier.padding(top = 2.dp),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                CartoonIcon(
+                    id = if (granted) R.drawable.ic_check_cartoon
+                         else R.drawable.ic_cross_cartoon,
+                    size = 32.dp,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun PreviewPlaceholder() {
-    SpendAiTheme {
-        Surface(Modifier.fillMaxSize()) {
-            Text("Permissions preview")
         }
     }
 }
@@ -253,7 +231,7 @@ private fun PreviewPlaceholder() {
 @Composable
 private fun PermissionsViewModelFactory(
     setupViewModel: SetupViewModel,
-): androidx.lifecycle.ViewModelProvider.Factory =
-    androidx.lifecycle.viewmodel.viewModelFactory {
+): ViewModelProvider.Factory =
+    viewModelFactory {
         initializer { PermissionsViewModel(setupViewModel) }
     }

@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Cloud -->
+    <path
+        android:fillColor="#9DEAE0"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M18,40 C10,40 4,34 4,26 C4,18 10,12 18,12 C20,6 28,2 36,6 C44,2 54,6 54,16 C58,16 60,20 60,24 C60,30 54,36 48,36 L48,36 L18,40 Z" />
+    <!-- Arrow shaft + head -->
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M28,24 L36,24 L36,36 L44,36 L32,50 L20,36 L28,36 Z" />
+</vector>

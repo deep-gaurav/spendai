@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Activity window background colors. Picked to match the Compose
+      theme so cold start doesn't flash white in light mode or
+      pure-black in dark mode.
+    -->
+    <color name="spendai_window_background_light">#FFF7D6</color>
+    <color name="spendai_window_background_dark">#0F1226</color>
+</resources>

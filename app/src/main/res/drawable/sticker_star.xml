@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- 5-point star (chunky, with ink border) -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M32,6 L40,24 L60,26 L44,40 L50,60 L32,48 L14,60 L20,40 L4,26 L24,24 Z" />
+    <!-- Inner shine -->
+    <path
+        android:fillColor="#FFB300"
+        android:pathData="M32,18 L36,28 L46,29 L38,36 L41,46 L32,40 L23,46 L26,36 L18,29 L28,28 Z" />
+</vector>

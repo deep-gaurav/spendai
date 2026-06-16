@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Circle background -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:pathData="M32,32 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0 Z" />
+    <!-- Check mark -->
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M19,33 L28,42 L46,23" />
+</vector>

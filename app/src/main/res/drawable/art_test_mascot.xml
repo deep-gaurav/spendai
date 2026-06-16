@@ -1,0 +1,63 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <!-- Lightbulb body -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M42,6 C25,6 14,20 14,38 C14,48 22,56 28,64 L28,72 L56,72 L56,64 C62,56 70,48 70,38 C70,20 59,6 42,6 Z" />
+    <!-- Bulb base (screw threads) -->
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:pathData="M28,72 L56,72 L56,80 L28,80 Z" />
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:pathData="M30,80 L54,80 L52,88 L32,88 Z" />
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M34,88 L50,88 L46,96 L38,96 Z" />
+    <!-- Left eye -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M32,38 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0 Z" />
+    <!-- Right eye -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M52,38 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0 Z" />
+    <!-- Big smile -->
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M30,48 Q42,58 54,48" />
+    <!-- Cheek blush -->
+    <path
+        android:fillColor="#FF7A00"
+        android:pathData="M24,48 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <path
+        android:fillColor="#FF7A00"
+        android:pathData="M60,48 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <!-- Sparkle top-right -->
+    <path
+        android:fillColor="#FF7A00"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M88,10 L92,20 L102,24 L92,28 L88,38 L84,28 L74,24 L84,20 Z" />
+    <!-- Sparkle bottom-left small -->
+    <path
+        android:fillColor="#0F9E8E"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M16,72 L18,78 L24,80 L18,82 L16,88 L14,82 L8,80 L14,78 Z" />
+</vector>

@@ -1,6 +1,7 @@
 package com.spendai.app.ui.test
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,20 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cancel
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -35,12 +25,18 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendai.app.R
+import com.spendai.app.ui.components.BigOutlinedButton
+import com.spendai.app.ui.components.BigPrimaryButton
+import com.spendai.app.ui.components.CartoonIcon
+import com.spendai.app.ui.components.OnboardingScaffold
+import com.spendai.app.ui.components.SectionLabel
+import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.setup.SetupViewModel
+import com.spendai.app.ui.theme.Dimens
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TestScreen(
     setupViewModel: SetupViewModel,
@@ -49,78 +45,101 @@ fun TestScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+    OnboardingScaffold(
+        title = stringResource(R.string.app_name),
+        step = 3,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd),
         ) {
+            // Hero illustration
+            CartoonIcon(
+                id = R.drawable.art_test_mascot,
+                size = 160.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = Dimens.SpaceSm),
+            )
+
             Text(
-                stringResource(R.string.test_title),
-                style = MaterialTheme.typography.headlineSmall,
+                text = stringResource(R.string.test_title),
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                stringResource(R.string.test_subtitle),
+                text = stringResource(R.string.test_subtitle),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            SectionHeader(stringResource(R.string.test_prompt_label))
-            Text(
-                PROBE_PROMPT,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-
-            if (ui.engineLabel.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.test_engine_status_format, ui.engineLabel),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+            // Strict prompt
+            StickerCard {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+                    SectionLabel(stringResource(R.string.test_prompt_label))
+                    Text(
+                        text = PROBE_PROMPT,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (ui.engineLabel.isNotEmpty()) {
+                        Spacer(Modifier.height(Dimens.SpaceXs / 2))
+                        Text(
+                            text = stringResource(R.string.test_engine_status_format, ui.engineLabel),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
 
+            // Status block
             StatusBlock(phase = ui.phase, response = ui.response)
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Dimens.SpaceXs))
 
             when (ui.phase) {
                 TestUiState.Phase.Idle, TestUiState.Phase.Fail -> {
-                    Button(
+                    BigPrimaryButton(
                         onClick = viewModel::run,
+                        text = stringResource(R.string.test_run),
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            Icons.Outlined.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.size(8.dp))
-                        Text(stringResource(R.string.test_run))
-                    }
+                        leadingIcon = {
+                            CartoonIcon(
+                                id = R.drawable.ic_play_cartoon,
+                                size = 28.dp,
+                            )
+                        },
+                    )
                     if (ui.phase == TestUiState.Phase.Fail) {
-                        OutlinedButton(
-                            onClick = { viewModel.continueAnyway(); onContinue() },
+                        BigOutlinedButton(
+                            onClick = {
+                                viewModel.continueAnyway()
+                                onContinue()
+                            },
+                            text = stringResource(R.string.test_continue_anyway),
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(stringResource(R.string.test_continue_anyway)) }
+                        )
                     }
                 }
                 TestUiState.Phase.Pass -> {
-                    Button(
+                    BigPrimaryButton(
                         onClick = onContinue,
+                        text = stringResource(R.string.onboarding_continue),
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.onboarding_continue)) }
+                    )
                 }
                 TestUiState.Phase.Initializing, TestUiState.Phase.Asking -> {
-                    OutlinedButton(
+                    BigOutlinedButton(
                         onClick = { /* busy; nothing to do */ },
+                        text = stringResource(R.string.test_asking),
                         enabled = false,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.test_asking)) }
+                    )
                 }
             }
         }
@@ -128,74 +147,66 @@ fun TestScreen(
 }
 
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-    )
-}
-
-@Composable
 private fun StatusBlock(phase: TestUiState.Phase, response: String?) {
-    val (icon, tint, message) = when (phase) {
+    val (iconRes, tint, message) = when (phase) {
         TestUiState.Phase.Pass -> Triple(
-            Icons.Outlined.CheckCircle,
-            MaterialTheme.colorScheme.primary,
+            R.drawable.ic_check_cartoon,
+            androidx.compose.ui.graphics.Color.Unspecified,
             stringResource(R.string.test_pass),
         )
         TestUiState.Phase.Fail -> Triple(
-            Icons.Outlined.Cancel,
-            MaterialTheme.colorScheme.error,
+            R.drawable.ic_cross_cartoon,
+            androidx.compose.ui.graphics.Color.Unspecified,
             stringResource(R.string.test_fail),
         )
         TestUiState.Phase.Initializing -> Triple(
-            null, MaterialTheme.colorScheme.primary,
+            R.drawable.ic_cloud_download_cartoon,
+            androidx.compose.ui.graphics.Color.Unspecified,
             stringResource(R.string.test_initializing),
         )
         TestUiState.Phase.Asking -> Triple(
-            null, MaterialTheme.colorScheme.primary,
+            R.drawable.ic_cloud_download_cartoon,
+            androidx.compose.ui.graphics.Color.Unspecified,
             stringResource(R.string.test_asking),
         )
         TestUiState.Phase.Idle -> Triple(
-            null, MaterialTheme.colorScheme.onSurfaceVariant,
+            R.drawable.ic_cloud_download_cartoon,
+            androidx.compose.ui.graphics.Color.Unspecified,
             stringResource(R.string.test_idle),
         )
     }
 
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    StickerCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (icon != null) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = tint,
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Spacer(Modifier.size(8.dp))
-                } else if (phase == TestUiState.Phase.Initializing ||
-                    phase == TestUiState.Phase.Asking
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.size(8.dp))
+                when (phase) {
+                    TestUiState.Phase.Initializing, TestUiState.Phase.Asking -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 3.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    else -> CartoonIcon(id = iconRes, size = 36.dp)
                 }
-                Text(message, style = MaterialTheme.typography.titleMedium, color = tint)
+                Spacer(Modifier.size(Dimens.SpaceSm))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = when (phase) {
+                        TestUiState.Phase.Pass -> MaterialTheme.colorScheme.tertiary
+                        TestUiState.Phase.Fail -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                )
             }
 
             if (!response.isNullOrBlank()) {
-                Spacer(Modifier.height(12.dp))
-                SectionHeader(stringResource(R.string.test_response_label))
+                SectionLabel(stringResource(R.string.test_response_label))
                 Text(
-                    response,
+                    text = response,
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Start,
                 )
             }
@@ -206,8 +217,8 @@ private fun StatusBlock(phase: TestUiState.Phase, response: String?) {
 @Composable
 private fun TestViewModelFactory(
     setupViewModel: SetupViewModel,
-): androidx.lifecycle.ViewModelProvider.Factory =
-    androidx.lifecycle.viewmodel.viewModelFactory {
+): ViewModelProvider.Factory =
+    viewModelFactory {
         initializer {
             val app = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as android.app.Application)
             TestViewModel(app, setupViewModel)

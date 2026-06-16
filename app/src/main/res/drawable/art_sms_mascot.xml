@@ -1,0 +1,58 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <!-- Phone body -->
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M30,8 L78,8 A8,8 0 0 1 86,16 L86,108 A8,8 0 0 1 78,116 L30,116 A8,8 0 0 1 22,108 L22,16 A8,8 0 0 1 30,8 Z" />
+    <!-- Phone screen -->
+    <path
+        android:fillColor="#FFF7D6"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:pathData="M30,20 L78,20 L78,98 L30,98 Z" />
+    <!-- Left eye -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M42,42 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <!-- Right eye -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M66,42 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <!-- Smile -->
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M44,66 Q54,76 64,66" />
+    <!-- Cheeks -->
+    <path
+        android:fillColor="#FF7A00"
+        android:pathData="M36,60 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <path
+        android:fillColor="#FF7A00"
+        android:pathData="M72,60 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <!-- Credit card (overlapping the phone) -->
+    <path
+        android:fillColor="#9DEAE0"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M62,76 L106,76 A4,4 0 0 1 110,80 L110,102 A4,4 0 0 1 106,106 L62,106 A4,4 0 0 1 58,102 L58,80 A4,4 0 0 1 62,76 Z" />
+    <!-- Card magnetic stripe -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M58,84 L110,84 L110,90 L58,90 Z" />
+    <!-- Card chip -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:pathData="M66,94 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+</vector>

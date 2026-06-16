@@ -7,7 +7,7 @@
       starts edge-to-edge so the system bars don't inset our content.
     -->
     <style name="Theme.SpendAi" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowBackground">@color/spendai_window_background_light</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>

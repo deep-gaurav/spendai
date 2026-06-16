@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Coin body -->
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:pathData="M32,32 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0 Z" />
+    <!-- Inner ring -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:pathData="M32,32 m-18,0 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0 Z" />
+    <!-- Dollar mark -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M30,22 L34,22 L34,25 L36,25 C38,25 39,27 39,29 C39,31 38,33 36,33 L34,33 L34,38 L37,38 L37,41 L34,41 L34,44 L30,44 L30,41 L28,41 C26,41 25,39 25,37 L29,37 C29,38 30,38 30,38 L34,38 L34,33 L32,33 C30,33 28,31 28,29 C28,27 30,25 32,25 L30,25 Z" />
+</vector>

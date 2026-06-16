@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Big 4-point sparkle -->
+    <path
+        android:fillColor="#FF7A00"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M32,4 C34,4 38,22 42,26 C46,30 60,32 60,32 C60,32 46,34 42,38 C38,42 34,60 32,60 C30,60 26,42 22,38 C18,34 4,32 4,32 C4,32 18,30 22,26 C26,22 30,4 32,4 Z" />
+    <!-- Inner highlight -->
+    <path
+        android:fillColor="#FFD966"
+        android:pathData="M32,16 C32,16 34,26 38,30 C42,32 48,32 48,32 C48,32 42,32 38,34 C34,38 32,48 32,48 C32,48 30,38 26,34 C22,32 16,32 16,32 C16,32 22,32 26,30 C30,26 32,16 32,16 Z" />
+</vector>

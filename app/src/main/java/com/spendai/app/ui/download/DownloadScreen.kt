@@ -1,9 +1,8 @@
 package com.spendai.app.ui.download
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,21 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.CloudDownload
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -35,13 +26,19 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendai.app.R
+import com.spendai.app.ui.components.BigOutlinedButton
+import com.spendai.app.ui.components.BigPrimaryButton
+import com.spendai.app.ui.components.CartoonIcon
+import com.spendai.app.ui.components.OnboardingScaffold
+import com.spendai.app.ui.components.SectionLabel
+import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.setup.SetupViewModel
-import java.util.Locale
+import com.spendai.app.ui.theme.Dimens
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadScreen(
     setupViewModel: SetupViewModel,
@@ -50,114 +47,91 @@ fun DownloadScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+    OnboardingScaffold(
+        title = stringResource(R.string.app_name),
+        step = 2,
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd),
         ) {
-            Icon(
-                Icons.Outlined.CloudDownload,
-                contentDescription = null,
-                modifier = Modifier.size(56.dp),
-                tint = MaterialTheme.colorScheme.primary,
+            // Hero illustration
+            CartoonIcon(
+                id = R.drawable.art_download_mascot,
+                size = 160.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = Dimens.SpaceSm),
+            )
+
+            Text(
+                text = stringResource(R.string.download_title),
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                stringResource(R.string.download_title),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                stringResource(R.string.download_subtitle),
+                text = stringResource(R.string.download_subtitle),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // Progress
-            when {
-                ui.present -> AlreadyPresentRow()
-                ui.running -> {
-                    val progress = if (ui.totalBytes > 0) {
-                        ui.bytesDownloaded.toFloat() / ui.totalBytes.toFloat()
-                    } else null
-                    Text(
-                        stringResource(R.string.download_running),
-                        style = MaterialTheme.typography.titleMedium,
+            // Status / progress card
+            StickerCard {
+                when {
+                    ui.present -> AlreadyPresentRow()
+                    ui.running -> RunningBlock(
+                        bytesDownloaded = ui.bytesDownloaded,
+                        totalBytes = ui.totalBytes,
                     )
-                    if (progress != null) {
-                        LinearProgressIndicator(
-                            progress = { progress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    Text(
-                        formatBytesLabel(ui.bytesDownloaded, ui.totalBytes),
+                    ui.error != null -> Text(
+                        text = ui.error ?: stringResource(R.string.download_error_generic),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    else -> Text(
+                        text = stringResource(R.string.download_idle),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                ui.error != null -> {
-                    Text(
-                        ui.error ?: stringResource(R.string.download_error_generic),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                else -> Text(
-                    stringResource(R.string.download_idle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
 
-            // Source label
+            // Source
+            SectionLabel(stringResource(R.string.download_source_label))
             Text(
-                stringResource(R.string.download_source_label).uppercase(Locale.getDefault()),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                stringResource(R.string.download_source_value),
+                text = stringResource(R.string.download_source_value),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Start,
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Dimens.SpaceXs))
 
             when {
-                ui.present -> {
-                    Button(
-                        onClick = onContinue,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.onboarding_continue)) }
-                }
-                ui.running -> {
-                    OutlinedButton(
-                        onClick = viewModel::cancel,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.onboarding_cancel)) }
-                }
-                ui.error != null -> {
-                    Button(
-                        onClick = viewModel::retry,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.onboarding_retry)) }
-                }
-                else -> {
-                    Button(
-                        onClick = viewModel::start,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.download_start)) }
-                }
+                ui.present -> BigPrimaryButton(
+                    onClick = onContinue,
+                    text = stringResource(R.string.onboarding_continue),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ui.running -> BigOutlinedButton(
+                    onClick = viewModel::cancel,
+                    text = stringResource(R.string.onboarding_cancel),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ui.error != null -> BigPrimaryButton(
+                    onClick = viewModel::retry,
+                    text = stringResource(R.string.onboarding_retry),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                else -> BigPrimaryButton(
+                    onClick = viewModel::start,
+                    text = stringResource(R.string.download_start),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -165,19 +139,55 @@ fun DownloadScreen(
 
 @Composable
 private fun AlreadyPresentRow() {
-    Row(
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Outlined.CheckCircle,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(24.dp),
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        CartoonIcon(
+            id = R.drawable.ic_check_cartoon,
+            size = 40.dp,
         )
-        Spacer(Modifier.size(8.dp))
+        Spacer(Modifier.size(Dimens.SpaceSm))
         Text(
-            stringResource(R.string.download_skip_already_present),
+            text = stringResource(R.string.download_skip_already_present),
             style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun RunningBlock(bytesDownloaded: Long, totalBytes: Long) {
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
+        Text(
+            text = stringResource(R.string.download_running),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        val progress = if (totalBytes > 0) {
+            (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+        } else null
+        if (progress != null) {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(14.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 4.dp,
+                )
+            }
+        }
+        Text(
+            text = formatBytesLabel(bytesDownloaded, totalBytes),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -207,8 +217,8 @@ internal fun formatBytes(bytes: Long): String {
 @Composable
 private fun DownloadViewModelFactory(
     setupViewModel: SetupViewModel,
-): androidx.lifecycle.ViewModelProvider.Factory =
-    androidx.lifecycle.viewmodel.viewModelFactory {
+): ViewModelProvider.Factory =
+    viewModelFactory {
         initializer {
             val app = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as android.app.Application)
             DownloadViewModel(app, setupViewModel)

@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Squircle background -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:pathData="M20,8 L44,8 A8,8 0 0 1 52,16 L52,48 A8,8 0 0 1 44,56 L20,56 A8,8 0 0 1 12,48 L12,16 A8,8 0 0 1 20,8 Z" />
+    <!-- Three dots -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M22,32 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M32,32 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M42,32 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+</vector>

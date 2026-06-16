@@ -1,0 +1,59 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <!-- Parachute cloud -->
+    <path
+        android:fillColor="#9DEAE0"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M30,30 C20,30 12,22 12,12 C12,4 20,-2 30,-2 C32,-10 42,-14 52,-10 C60,-14 70,-10 70,0 C76,0 80,4 80,10 C80,18 72,26 64,26 L30,30 Z" />
+    <!-- Parachute strings -->
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M22,24 L40,55" />
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M44,30 L52,55" />
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M64,30 L60,55" />
+    <path
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M76,24 L70,55" />
+    <!-- Bottom coin -->
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M16,90 L84,90 A4,4 0 0 1 88,94 L88,102 A4,4 0 0 1 84,106 L16,106 A4,4 0 0 1 12,102 L12,94 A4,4 0 0 1 16,90 Z" />
+    <!-- Middle coin -->
+    <path
+        android:fillColor="#FFD966"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M16,74 L84,74 A4,4 0 0 1 88,78 L88,86 A4,4 0 0 1 84,90 L16,90 A4,4 0 0 1 12,86 L12,78 A4,4 0 0 1 16,74 Z" />
+    <!-- Top coin -->
+    <path
+        android:fillColor="#FFB300"
+        android:strokeColor="#1A0F00"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M16,58 L84,58 A4,4 0 0 1 88,62 L88,70 A4,4 0 0 1 84,74 L16,74 A4,4 0 0 1 12,70 L12,62 A4,4 0 0 1 16,58 Z" />
+    <!-- Star on top coin -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M50,62 L52,68 L58,68 L53,72 L55,78 L50,74 L45,78 L47,72 L42,68 L48,68 Z" />
+</vector>
