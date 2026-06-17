@@ -290,3 +290,33 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
         )
     }
 }
+
+/**
+ * v5 → v6: idempotency columns on `raw_sms`.
+ *
+ * Adds two nullable columns to the existing `raw_sms` table:
+ *
+ *  - `processedAt`: epoch millis when the row reached a terminal
+ *    state. `null` means "still pending — a future run may pick
+ *    this up". Replaces the v5 "not in spend_transaction" check.
+ *  - `lastError`: last A1/A2 error string. Cleared on the next
+ *    successful commit. Surfaced on the debug log.
+ *
+ * The new composite index `(status, processedAt, timestamp)` is the
+ * workhorse for the service's "give me pending in range" query.
+ *
+ * Note: existing rows from v5 have `processedAt = null`, so they
+ * are correctly picked up by the new pending query on first run.
+ * The pipeline marks them processedAt on the first terminal state
+ * they reach.
+ */
+val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `raw_sms` ADD COLUMN `processedAt` INTEGER")
+        db.execSQL("ALTER TABLE `raw_sms` ADD COLUMN `lastError` TEXT")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_raw_sms_status_processedAt_timestamp` " +
+                "ON `raw_sms` (`status`, `processedAt`, `timestamp`)"
+        )
+    }
+}

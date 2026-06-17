@@ -28,6 +28,7 @@ import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionLink
 import com.spendai.app.data.local.migrations.MIGRATION_1_2
 import com.spendai.app.data.local.migrations.MIGRATION_2_3
+import com.spendai.app.data.local.migrations.MIGRATION_5_6
 
 /**
  * The single Room database for SpendAI.
@@ -50,6 +51,12 @@ import com.spendai.app.data.local.migrations.MIGRATION_2_3
  * v1 or v2 user still on those schemas runs the existing
  * MIGRATION_1_2 and MIGRATION_2_3 chain first and then hits the
  * destructive fallback for the v3 → v5 step.
+ *
+ * ## v5 → v6
+ *
+ * Adds `raw_sms.processedAt` and `raw_sms.lastError` for
+ * idempotency. See MIGRATION_5_6 for the column adds and the
+ * supporting composite index.
  */
 @Database(
     entities = [
@@ -64,7 +71,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_2_3
         IngestionLog::class,
         Category::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -85,7 +92,7 @@ abstract class AppDatabase : RoomDatabase() {
         private const val DB_NAME = "spendai.db"
 
         /** All known migrations in order. v3 → v5 is destructive. */
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_5_6)
 
         @Volatile
         private var instance: AppDatabase? = null

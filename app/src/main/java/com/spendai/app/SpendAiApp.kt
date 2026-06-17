@@ -53,7 +53,7 @@ import java.util.concurrent.TimeUnit
  *    must be triggered from a UI action or the worker, not from a
  *    cold start that may happen with the user in airplane mode.
  */
-class SpendAiApp : Application() {
+open class SpendAiApp : Application() {
 
     val database: AppDatabase by lazy { AppDatabase.get(this) }
 
@@ -114,13 +114,13 @@ class SpendAiApp : Application() {
         )
     }
 
-    override fun onCreate() {
+    override open fun onCreate() {
         super.onCreate()
         Log.i(TAG, "SpendAI cold start")
         scheduleDailyParsing()
     }
 
-    private fun scheduleDailyParsing() {
+    open fun scheduleDailyParsing() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
             .setRequiresBatteryNotLow(true)

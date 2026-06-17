@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -51,19 +50,22 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = HomeUiState(),
     )
 
+    /**
+     * Start a foreground ingestion for the user-picked [range]. The
+     * service is the only executor; its re-entrancy guard prevents
+     * a duplicate run if this fires while another is in flight.
+     */
     fun startIngest(range: DateRange) {
         IngestionService.start(getApplication(), range)
     }
 
     /**
-     * Start the "Re-process pending" pipeline. The service ignores
-     * the date range and re-runs A1+A2 on any raw_sms row that does
-     * not have a corresponding `spend_transaction`. Covers
-     * UNPARSED + IGNORED + PARSED-without-txn — i.e. anything that
-     * was stuck from a previous Doze-killed or OOM-killed run.
+     * Start the "Re-process pending" pipeline. The service re-runs
+     * A1+A2 on every `raw_sms` row whose `processedAt` is still
+     * null. Covers UNPARSED rows that A1 or A2 failed on.
      */
     fun startReprocess() {
-        IngestionService.startReprocess(getApplication())
+        IngestionService.startPending(getApplication())
     }
 
     fun cancelIngest() {
@@ -85,15 +87,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
-    fun rangeFor(preset: RangePreset, now: Long = System.currentTimeMillis()): DateRange =
-        when (preset) {
-            RangePreset.YESTERDAY -> DateRange.calendarDaysBack(now, daysBack = 1)
-            RangePreset.LAST_7_DAYS -> DateRange.calendarDaysBack(now, daysBack = 7)
-            RangePreset.LAST_30_DAYS -> DateRange.calendarDaysBack(now, daysBack = 30)
-        }
-
-    enum class RangePreset { YESTERDAY, LAST_7_DAYS, LAST_30_DAYS }
 }
 
 internal fun labelFor(state: InferenceState): String = when (state) {

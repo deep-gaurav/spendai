@@ -26,51 +26,35 @@ import java.time.ZoneId
  * mocked engine and a `ListSmsSource`.
  *
  * Two callers:
- *  - [com.spendai.app.worker.DailyParsingWorker] — uses
- *    `DatabaseSmsSource` and an unbounded range to drain whatever's
- *    pending after the receiver captured new SMS.
  *  - [com.spendai.app.service.IngestionService] — uses
- *    `ContentResolverSmsSource` and a user-picked date range for
- *    foreground historical ingestion.
+ *    `ContentResolverSmsSource` for foreground historical ingestion
+ *    and `DatabaseSmsSource` for "re-process pending".
+ *  - [com.spendai.app.worker.DailyParsingWorker] — the per-message
+ *    retry path delegates to [runOne].
  *
  * ## Per-message flow
  *
  * The pipeline is a flat loop over the input SMS rows. A1 parses
  * (or reuses a cached `parsed_sms` row) and A2 resolves the
  * entities AND commits the `spend_transaction` row in a single
- * per-message call. The previous day-batched commit step (A3) is
- * gone — each message becomes a real row as soon as A2 returns.
+ * per-message call.
  *
- * ## Day grouping fix (v0.6)
+ * ## Idempotency (v6)
  *
- * A2's `resolveAndCommit` takes the raw SMS receive timestamp and
- * uses it as the transaction's `txnAtMillis`. The model's
- * `parsed.txnAtMillis` is preserved on `parsed_sms` for the audit
- * log but is no longer copied onto the transaction. This keeps
- * "received at 23:59" and "received at 00:01" on their respective
- * receive days, even when the model guesses a slightly different
- * transaction time.
+ * The "pending" query is `status = UNPARSED AND processedAt IS NULL`.
+ * Terminal state transitions:
  *
- * ## Cache-hit retry
+ *  - TRANSACTION committed → `markProcessed` (status=PARSED,
+ *    processedAt=now, lastError=null).
+ *  - A1 says IGNORE → `markIgnoredProcessed` (status=IGNORED,
+ *    processedAt=now, lastError=null).
+ *  - A1 or A2 throws → `markSkipped` (status stays UNPARSED,
+ *    processedAt stays null, lastError=reason). A future run
+ *    picks the row up again.
  *
- * A message whose `parsed_sms` row exists but has no transaction is
- * re-fed to A2 on the next run. We actually re-run A2 and log the
- * new attempt — the audit pane shows the most recent try, so the
- * user can see if the model is still failing or has recovered.
- *
- * ## Re-process pending
- *
- * The `runPending` method processes any `raw_sms` row that does not
- * have a corresponding `spend_transaction.rawSmsId`, regardless of
- * its `status` (UNPARSED, IGNORED, or PARSED-without-txn). This is
- * the recovery path for messages that ended up in a stuck state
- * because the previous run was killed by Doze / OOM.
- *
- * ## Per-message retry
- *
- * `runOne(rawSmsId)` processes a single message. Used by the debug
- * log's "Retry" button for messages stuck in a SKIPPED_A1 /
- * SKIPPED_A2 loop.
+ * A row that has `processedAt` set is never re-picked by the
+ * pending query, so retries are safe even after a partial run
+ * gets killed by Doze / OOM mid-loop.
  */
 class IngestionPipeline(
     private val database: AppDatabase,
@@ -82,6 +66,10 @@ class IngestionPipeline(
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
 
+    /**
+     * Run the pipeline over the rows the [source] yields for [range],
+     * then process the in-DB pending rows that fall inside [range].
+     */
     suspend fun run(
         source: SmsSource,
         range: DateRange,
@@ -96,16 +84,12 @@ class IngestionPipeline(
             }
             Log.d(TAG, "Source loaded $loadedCount messages (range=$range)")
 
-            val unparsed = if (range == DateRange.unbounded()) {
-                smsRepository.unparsedOnce()
-            } else {
-                smsRepository.unparsedInRange(range.startMillis, range.endMillis)
-            }
-            if (unparsed.isEmpty()) {
+            val pending = smsRepository.pendingInRange(range.startMillis, range.endMillis)
+            if (pending.isEmpty()) {
                 emit(IngestionProgress.Done(IngestionSummary.EMPTY))
                 return@withContext IngestionOutcome.Success(IngestionSummary.EMPTY)
             }
-            val summary = processMessages(unparsed, emit)
+            val summary = processMessages(pending, emit)
             emit(IngestionProgress.Done(summary))
             IngestionOutcome.Success(summary)
         } catch (ce: CancellationException) {
@@ -119,11 +103,16 @@ class IngestionPipeline(
         }
     }
 
+    /**
+     * Re-process every pending row in the DB, regardless of range.
+     * Backs the "Re-process pending" CTA and the periodic
+     * WorkManager safety net.
+     */
     suspend fun runPending(
         emit: suspend (IngestionProgress) -> Unit,
     ): IngestionOutcome = withContext(Dispatchers.IO) {
         try {
-            val pending = smsRepository.pendingNotCommitted()
+            val pending = smsRepository.pendingOnce()
             if (pending.isEmpty()) {
                 emit(IngestionProgress.Done(IngestionSummary.EMPTY))
                 return@withContext IngestionOutcome.Success(IngestionSummary.EMPTY)
@@ -143,6 +132,10 @@ class IngestionPipeline(
         }
     }
 
+    /**
+     * Per-message retry path. Used by the debug log's "Retry" button
+     * for messages stuck in a SKIPPED_A1 / SKIPPED_A2 loop.
+     */
     suspend fun runOne(
         rawSmsId: Long,
         emit: suspend (IngestionProgress) -> Unit,
@@ -168,7 +161,7 @@ class IngestionPipeline(
     }
 
     private suspend fun processMessages(
-        unparsed: List<RawSmsMessage>,
+        pending: List<RawSmsMessage>,
         emit: suspend (IngestionProgress) -> Unit,
     ): IngestionSummary {
         var parsedCount = 0
@@ -177,9 +170,9 @@ class IngestionPipeline(
         var skippedByA1 = 0
         var skippedByA2 = 0
         var lastDay: LocalDate? = null
-        val totalMessages = unparsed.size
+        val totalMessages = pending.size
 
-        unparsed.forEachIndexed { messageIndex, message ->
+        pending.forEachIndexed { messageIndex, message ->
             val day = instantToLocalDate(message.timestamp)
             if (day != lastDay) {
                 Log.d(TAG, "starting day=$day messagesRemaining=$totalMessages")
@@ -252,6 +245,7 @@ class IngestionPipeline(
                     "A1 failed for rawSmsId=${message.id} (${t.message}); skipping",
                     t,
                 )
+                smsRepository.markSkipped(message.id, t.message ?: t.javaClass.simpleName)
                 emit(
                     IngestionProgress.MessageSkipped(
                         messageIndex = messageIndex,
@@ -299,7 +293,7 @@ class IngestionPipeline(
         )
         smsRepository.setParsedSmsId(message.id, a1.parsed.id)
         if (a1.parsed.kind == ParsedSmsKind.IGNORE.name) {
-            smsRepository.markIgnored(message.id)
+            smsRepository.markIgnoredProcessed(message.id, ingestedAt)
             recordLog(
                 rawSmsId = message.id,
                 parsedSmsId = a1.parsed.id,
@@ -320,6 +314,7 @@ class IngestionPipeline(
             agent2.resolveAndCommit(a1.parsed, smsTimestampMillis = message.timestamp)
         } catch (e: A2FailureException) {
             Log.w(TAG, "A2 failed for parsedSmsId=${a1.parsed.id}; skipping", e)
+            smsRepository.markSkipped(message.id, e.message ?: e.javaClass.simpleName)
             emit(
                 IngestionProgress.MessageSkipped(
                     messageIndex = messageIndex,
@@ -345,6 +340,7 @@ class IngestionPipeline(
             return
         } catch (t: Throwable) {
             Log.w(TAG, "A2 unexpected throw for parsedSmsId=${a1.parsed.id}; skipping", t)
+            smsRepository.markSkipped(message.id, t.message ?: t.javaClass.simpleName)
             emit(
                 IngestionProgress.MessageSkipped(
                     messageIndex = messageIndex,
@@ -375,7 +371,7 @@ class IngestionPipeline(
                 transactionId = a2.transactionId,
             )
         )
-        smsRepository.markParsed(message.id)
+        smsRepository.markProcessed(message.id, ingestedAt)
         recordLog(
             rawSmsId = message.id,
             parsedSmsId = a1.parsed.id,
@@ -414,7 +410,7 @@ class IngestionPipeline(
         )
         smsRepository.setParsedSmsId(message.id, cached.id)
         if (cached.kind == ParsedSmsKind.IGNORE.name) {
-            smsRepository.markIgnored(message.id)
+            smsRepository.markIgnoredProcessed(message.id, ingestedAt)
             recordLog(
                 rawSmsId = message.id,
                 parsedSmsId = cached.id,
@@ -452,7 +448,7 @@ class IngestionPipeline(
                     transactionId = existingTxn.id,
                 )
             )
-            smsRepository.markParsed(message.id)
+            smsRepository.markProcessed(message.id, ingestedAt)
             onCommitted()
             return
         }
@@ -465,6 +461,7 @@ class IngestionPipeline(
                 "A2 retry on cache hit failed for parsedSmsId=${cached.id}; skipping",
                 e,
             )
+            smsRepository.markSkipped(message.id, "A2 retry: ${e.message ?: e.javaClass.simpleName}")
             emit(
                 IngestionProgress.MessageSkipped(
                     messageIndex = messageIndex,
@@ -493,6 +490,7 @@ class IngestionPipeline(
                 "A2 retry on cache hit had unexpected throw for parsedSmsId=${cached.id}; skipping",
                 t,
             )
+            smsRepository.markSkipped(message.id, "A2 retry: ${t.message ?: t.javaClass.simpleName}")
             emit(
                 IngestionProgress.MessageSkipped(
                     messageIndex = messageIndex,
@@ -522,7 +520,7 @@ class IngestionPipeline(
                 transactionId = a2.transactionId,
             )
         )
-        smsRepository.markParsed(message.id)
+        smsRepository.markProcessed(message.id, ingestedAt)
         recordLog(
             rawSmsId = message.id,
             parsedSmsId = cached.id,

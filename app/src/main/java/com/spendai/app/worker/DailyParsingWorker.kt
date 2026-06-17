@@ -6,23 +6,28 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import com.spendai.app.SpendAiApp
-import com.spendai.app.domain.ingestion.sources.DatabaseSmsSource
-import com.spendai.app.domain.ingestion.DateRange
 import com.spendai.app.domain.ingestion.IngestionOutcome
 import com.spendai.app.inference.InferenceState
+import com.spendai.app.service.IngestionService
 
 /**
- * Periodic drain of the `UNPARSED` SMS rows.
+ * Thin WorkManager wrapper that hands work off to the foreground
+ * [com.spendai.app.service.IngestionService]. The service is the
+ * only executor — this worker exists only so the WorkManager
+ * scheduler (24h periodic + receiver one-shot) has something to
+ * enqueue. The service's re-entrancy guard prevents two runs
+ * colliding when the worker fires while the service is already
+ * busy.
  *
- * Two entry points feed the worker:
+ * Two entry points:
+ *
  *  - A 24h `PeriodicWorkRequest` enqueued from
- *    [com.spendai.app.SpendAiApp.scheduleDailyParsing].
- *  - A one-shot request from [com.spendai.app.receiver.SmsReceiver]
- *    so freshly received messages don't wait a day.
+ *    [com.spendai.app.SpendAiApp.scheduleDailyParsing] — calls
+ *    [IngestionService.startPending].
  *  - A one-shot request with [EXTRA_RAW_SMS_ID] from the debug
  *    log's "Retry" button. The worker delegates to
  *    [com.spendai.app.domain.ingestion.IngestionPipeline.runOne]
- *    to re-process a single stuck message.
+ *    via the service's pipeline singleton.
  */
 class DailyParsingWorker(
     appContext: Context,
@@ -35,7 +40,14 @@ class DailyParsingWorker(
         if (rawSmsId > 0L) {
             return runOne(app, rawSmsId)
         }
-        return runOnce(app, applicationContext)
+        // Periodic + receiver one-shot: just hand off to the
+        // service. The service's busy guard makes a no-op when
+        // a run is already in flight, and WorkManager's
+        // ExistingWorkPolicy.KEEP semantics on the enqueue side
+        // prevent queue pile-up.
+        Log.d(TAG, "Worker handing off to IngestionService (pending)")
+        IngestionService.startPending(applicationContext)
+        return Result.success()
     }
 
     companion object {
@@ -45,42 +57,13 @@ class DailyParsingWorker(
         const val EXTRA_RAW_SMS_ID = "spendai.extra.RAW_SMS_ID"
         private const val TAG = "DailyParsingWorker"
 
-        suspend fun runOnce(
-            app: SpendAiApp,
-            appContext: android.content.Context,
-        ): Result {
-            if (app.gemmaInferenceEngine.state.value !is InferenceState.Ready) {
-                try {
-                    app.gemmaInferenceEngine.initialize(appContext)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Engine reinit failed; retrying later", t)
-                    return Result.retry()
-                }
-            }
-
-            return try {
-                val outcome = app.ingestionPipeline.run(
-                    source = DatabaseSmsSource(app.smsRepository),
-                    range = DateRange.unbounded(),
-                    emit = { /* periodic drain logs via the pipeline itself */ },
-                )
-                when (outcome) {
-                    is IngestionOutcome.Success -> Result.success()
-                    is IngestionOutcome.Failure -> Result.retry()
-                }
-            } catch (t: Throwable) {
-                Log.e(TAG, "Worker failed", t)
-                Result.retry()
-            }
-        }
-
         /**
          * Per-message retry path. Drives the pipeline on a single
          * raw_sms row and exits. Used by the debug log's "Retry"
          * button for messages stuck in a SKIPPED_A1 / SKIPPED_A2
          * loop.
          */
-        suspend fun runOne(app: SpendAiApp, rawSmsId: Long): Result {
+        private suspend fun runOne(app: SpendAiApp, rawSmsId: Long): Result {
             if (app.gemmaInferenceEngine.state.value !is InferenceState.Ready) {
                 try {
                     app.gemmaInferenceEngine.initialize(app)

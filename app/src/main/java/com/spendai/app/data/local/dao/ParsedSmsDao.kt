@@ -9,7 +9,19 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ParsedSmsDao {
-    @Insert(onConflict = OnConflictStrategy.ABORT)
+    /**
+     * Insert a parsed_sms row. The `rawSmsId` column has a UNIQUE
+     * index — if a row for the same `rawSmsId` already exists, the
+     * insert returns `-1` and the existing row is left untouched.
+     *
+     * The IGNORE strategy (replacing the previous ABORT) means a
+     * race between two ingestion runs (e.g. the worker and the
+     * service firing concurrently) can no longer crash a run —
+     * the second inserter sees the existing row and reuses it
+     * via [getByRawSms]. Defense in depth on top of the
+     * pipeline's cache check.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(row: ParsedSms): Long
 
     @Query("SELECT * FROM parsed_sms WHERE rawSmsId = :rawSmsId LIMIT 1")

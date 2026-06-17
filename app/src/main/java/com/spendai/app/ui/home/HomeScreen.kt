@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendai.app.R
-import com.spendai.app.data.local.dao.TransactionDetailsRow
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionDirection
 import com.spendai.app.domain.ingestion.IngestionProgress
@@ -53,8 +52,7 @@ import com.spendai.app.ui.components.BigPrimaryButton
 import com.spendai.app.ui.components.CartoonIcon
 import com.spendai.app.ui.components.SectionLabel
 import com.spendai.app.ui.components.StickerCard
-import com.spendai.app.ui.ingest.HomeViewModelRangePreset
-import com.spendai.app.ui.ingest.IngestRangeSheet
+import com.spendai.app.ui.ingest.IngestRangePickerDialog
 import com.spendai.app.ui.setup.SetupViewModel
 import com.spendai.app.ui.theme.Dimens
 import java.time.Instant
@@ -74,7 +72,7 @@ fun HomeScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
-    var sheetOpen by remember { mutableStateOf(false) }
+    var pickerOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.warmUpEngine() }
 
@@ -138,7 +136,7 @@ fun HomeScreen(
                     engineState = ui.engineState,
                     engineLabel = ui.engineLabel,
                     progress = ui.progress,
-                    onPickRange = { sheetOpen = true },
+                    onPickRange = { pickerOpen = true },
                     onReprocess = viewModel::startReprocess,
                     onCancel = viewModel::cancelIngest,
                 )
@@ -151,23 +149,13 @@ fun HomeScreen(
         }
     }
 
-    if (sheetOpen) {
-        IngestRangeSheet(
-            onPick = { preset ->
-                sheetOpen = false
-                val range = viewModel.rangeFor(
-                    when (preset) {
-                        HomeViewModelRangePreset.YESTERDAY ->
-                            HomeViewModel.RangePreset.YESTERDAY
-                        HomeViewModelRangePreset.LAST_7_DAYS ->
-                            HomeViewModel.RangePreset.LAST_7_DAYS
-                        HomeViewModelRangePreset.LAST_30_DAYS ->
-                            HomeViewModel.RangePreset.LAST_30_DAYS
-                    },
-                )
+    if (pickerOpen) {
+        IngestRangePickerDialog(
+            onConfirm = { range ->
+                pickerOpen = false
                 viewModel.startIngest(range)
             },
-            onDismiss = { sheetOpen = false },
+            onDismiss = { pickerOpen = false },
         )
     }
 }
@@ -222,7 +210,7 @@ private fun IngestCard(
                 Spacer(Modifier.size(Dimens.SpaceXs))
                 BigOutlinedButton(
                     onClick = onReprocess,
-                    text = "Re-process pending",
+                    text = stringResource(R.string.home_reprocess_pending),
                     modifier = Modifier.fillMaxWidth(),
                     leadingIcon = { CartoonIcon(R.drawable.ic_refresh_cartoon, size = 24.dp) },
                 )
@@ -329,6 +317,7 @@ private fun ProgressBlock(progress: IngestionProgress) {
             val s = progress.summary
             val parts = buildList {
                 add("${s.committedTransactions} committed")
+                if (s.ignored > 0) add("${s.ignored} ignored")
                 if (s.skippedByA1 > 0) add("${s.skippedByA1} skipped (A1)")
                 if (s.skippedByA2 > 0) add("${s.skippedByA2} skipped (A2)")
             }
@@ -402,11 +391,11 @@ private fun RecentRow(txn: Transaction) {
         else -> MaterialTheme.colorScheme.onSurface
     }
     val direction = when (txn.direction) {
-        TransactionDirection.CREDIT.name -> com.spendai.app.data.local.entity.TransactionDirection.CREDIT
-        else -> com.spendai.app.data.local.entity.TransactionDirection.DEBIT
+        TransactionDirection.CREDIT.name -> TransactionDirection.CREDIT
+        else -> TransactionDirection.DEBIT
     }
     val title = TransactionTitle.derive(
-        merchantName = null, // we don't have merchant on Transaction directly
+        merchantName = null,
         categoryName = null,
         direction = direction,
         channel = txn.channel,

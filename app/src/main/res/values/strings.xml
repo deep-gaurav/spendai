@@ -53,7 +53,7 @@
     <string name="test_run">Run check</string>
     <string name="test_continue_anyway">Continue anyway</string>
     <string name="test_response_label">Model reply</string>
-    <string name="test_response_value_format">%1$s</string>
+    <string name="test_response_label_format">%1$s</string>
     <string name="test_engine_status_format">Engine: %1$s</string>
 
     <!-- Home screen -->
@@ -74,24 +74,19 @@
     <string name="home_recent_empty">No transactions yet. Ingest some SMS to get started.</string>
     <string name="home_recent_see_all">See all</string>
     <string name="home_ingest_done">Ingestion finished</string>
+    <string name="home_reprocess_pending">Re-process pending</string>
 
-    <!-- Ingest range sheet -->
-    <string name="ingest_sheet_title">Ingest SMS</string>
-    <string name="ingest_sheet_subtitle">Pick how far back to read. Each local day is processed in order.</string>
-    <string name="ingest_sheet_needs_sms_title">SMS access required</string>
-    <string name="ingest_sheet_needs_sms_body">SpendAI needs READ_SMS to read your bank messages from the device. Nothing leaves the phone.</string>
-    <string name="ingest_sheet_grant">Grant access</string>
-    <string name="ingest_range_yesterday">Yesterday</string>
-    <string name="ingest_range_yesterday_sub">The last calendar day, ending at midnight today.</string>
-    <string name="ingest_range_week">Last 7 days</string>
-    <string name="ingest_range_week_sub">A week of SMS, ending at midnight today.</string>
-    <string name="ingest_range_month">Last 30 days</string>
-    <string name="ingest_range_month_sub">A month of SMS, ending at midnight today.</string>
-    <string name="ingest_progress_label">Day %1$d of %2$d</string>
-    <string name="ingest_progress_committing">Day %1$d of %2$d — committing</string>
-    <string name="ingest_progress_done">Done — %1$d committed, %2$d to review</string>
-    <string name="ingest_progress_failed">Ingestion failed: %1$s</string>
-    <string name="ingest_progress_cancelled">Ingestion cancelled</string>
+    <!-- Ingest range picker (v6) -->
+    <string name="ingest_picker_title">Pick a date range</string>
+    <string name="ingest_picker_hint">Tap a start day, then an end day, or pick a quick range below.</string>
+    <string name="ingest_preset_today">Today</string>
+    <string name="ingest_preset_this_week">This week</string>
+    <string name="ingest_preset_this_month">This month</string>
+    <string name="ingest_preset_last_month">Last month</string>
+    <string name="ingest_picker_apply">Apply</string>
+    <string name="ingest_picker_cancel">Cancel</string>
+    <string name="ingest_picker_no_selection">No range selected</string>
+    <string name="ingest_picker_range_format">%1$s \u2192 %2$s  \u00b7  %3$d day%4$s</string>
 
     <!-- Transactions screen -->
     <string name="transactions_title">Transactions</string>

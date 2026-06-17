@@ -23,6 +23,17 @@ import kotlinx.coroutines.withContext
  *
  * The returned [A1Outcome] includes the prompt and raw model
  * response so the pipeline can write them to the audit log.
+ *
+ * ## Concurrency safety (v6)
+ *
+ * The [ParsedSmsDao.insert] uses `OnConflictStrategy.IGNORE`. If a
+ * second ingestion run (e.g. worker + service racing) managed to
+ * insert a row for the same `rawSmsId` first, the agent's insert
+ * returns `-1`. The agent then re-fetches the existing row via
+ * [ParsedSmsRepository.getByRawSms] and returns it as the
+ * [A1Outcome.parsed]. The pipeline's audit log still records the
+ * fresh A1 prompt/response for this attempt — only the row on disk
+ * is the one from whichever inserter won the race.
  */
 class Agent1SmsParser(
     private val engine: GemmaInferenceEngine,
@@ -84,11 +95,39 @@ class Agent1SmsParser(
             rawJson = first,
             parsedAt = System.currentTimeMillis(),
         )
-        val id = parsedSmsRepository.insert(row)
-        A1Outcome(
-            parsed = row.copy(id = id),
-            prompt = fullPrompt,
-            response = first,
-        )
+        val insertedId = parsedSmsRepository.insert(row)
+        if (insertedId == -1L) {
+            // Conflict: another ingestion run (worker + service
+            // racing, or a redelivered intent) inserted a row for
+            // the same rawSmsId first. Fetch the winner's row and
+            // surface it as the result so the pipeline proceeds
+            // without re-running A2. The audit log still captures
+            // this attempt's prompt and response.
+            val existing = parsedSmsRepository.getByRawSms(rawSms.id)
+            if (existing == null) {
+                // Extremely unlikely (the row vanished between
+                // insert and fetch) — propagate the failure so the
+                // pipeline can retry on a future run.
+                throw IllegalStateException(
+                    "parsed_sms insert returned -1 but no row found for rawSmsId=${rawSms.id}"
+                )
+            }
+            Log.w(
+                TAG,
+                "parsed_sms race: rawSmsId=${rawSms.id} already had a row (id=${existing.id}). " +
+                    "Reusing the existing row."
+            )
+            A1Outcome(
+                parsed = existing,
+                prompt = fullPrompt,
+                response = first,
+            )
+        } else {
+            A1Outcome(
+                parsed = row.copy(id = insertedId),
+                prompt = fullPrompt,
+                response = first,
+            )
+        }
     }
 }
