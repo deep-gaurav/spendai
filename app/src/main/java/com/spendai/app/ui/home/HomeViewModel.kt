@@ -4,9 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.spendai.app.SpendAiApp
-import com.spendai.app.data.local.entity.PendingReviewKind
 import com.spendai.app.data.local.entity.Transaction
-import com.spendai.app.data.repository.PendingReviewRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.ingestion.DateRange
 import com.spendai.app.domain.ingestion.IngestionProgress
@@ -24,8 +22,6 @@ data class HomeUiState(
     val progress: IngestionProgress = IngestionProgress.Idle,
     val engineState: InferenceState = InferenceState.Uninitialized,
     val engineLabel: String = "Not loaded",
-    val pendingSourceCount: Int = 0,
-    val pendingTxnCount: Int = 0,
     val recentTransactions: List<Transaction> = emptyList(),
 )
 
@@ -35,21 +31,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         get() = getApplication<SpendAiApp>()
 
     private val transactions: TransactionRepository = app.transactionRepository
-    private val reviews: PendingReviewRepository = app.pendingReviewRepository
 
     private val source: Flow<HomeUiState> = combine(
         IngestionService.progress,
         app.gemmaInferenceEngine.state,
-        reviews.observeOpen(PendingReviewKind.SOURCE.name).map { it.size },
-        reviews.observeOpen(PendingReviewKind.TRANSACTION.name).map { it.size },
         transactions.observeAll(),
-    ) { progress, engineState, sourceCount, txnCount, allTxns ->
+    ) { progress, engineState, allTxns ->
         HomeUiState(
             progress = progress,
             engineState = engineState,
             engineLabel = labelFor(engineState),
-            pendingSourceCount = sourceCount,
-            pendingTxnCount = txnCount,
             recentTransactions = allTxns.take(5),
         )
     }

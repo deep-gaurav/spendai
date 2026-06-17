@@ -37,3 +37,6 @@ captures/
 # Local model sideloads (huge, never commit)
 app/src/main/assets/models/*.litertlm
 app/src/main/assets/models/*.task
+
+# ADB logcat dumps (debug)
+*.logcat

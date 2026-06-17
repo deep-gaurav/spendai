@@ -1,5 +1,6 @@
 package com.spendai.app.ui.transactions
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun TransactionsScreen(
     viewModel: TransactionsViewModel = viewModel(),
+    onTransactionClick: (Long) -> Unit = {},
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     Column(
@@ -60,7 +62,7 @@ fun TransactionsScreen(
                 verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm),
             ) {
                 items(ui.grouped, key = { it.day.toEpochDay() }) { group ->
-                    DayGroupCard(group)
+                    DayGroupCard(group, onTransactionClick)
                 }
             }
         }
@@ -68,19 +70,19 @@ fun TransactionsScreen(
 }
 
 @Composable
-private fun DayGroupCard(group: DayGroup) {
+private fun DayGroupCard(group: DayGroup, onTransactionClick: (Long) -> Unit) {
     StickerCard {
         Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
             SectionLabel(group.day.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
             group.transactions.forEach { txn ->
-                TxnRow(txn)
+                TxnRow(txn, onTransactionClick)
             }
         }
     }
 }
 
 @Composable
-private fun TxnRow(txn: Transaction) {
+private fun TxnRow(txn: Transaction, onTransactionClick: (Long) -> Unit) {
     val directionSymbol = when (txn.direction) {
         TransactionDirection.DEBIT.name -> "-"
         TransactionDirection.CREDIT.name -> "+"
@@ -93,7 +95,10 @@ private fun TxnRow(txn: Transaction) {
         else -> MaterialTheme.colorScheme.onSurface
     }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onTransactionClick(txn.id) }
+            .padding(vertical = Dimens.SpaceXs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

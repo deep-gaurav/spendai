@@ -14,8 +14,12 @@ import com.spendai.app.BuildConfig
  *   instrumentation tests can override it per build flavor.
  * @property cacheDir LiteRT-LM speeds up its second load by writing
  *   compiled artifacts here. Defaults to `context.cacheDir.path`.
- * @property maxTokens maximum tokens the model may emit in one call.
+ * @property maxTokens default output budget for a single generate call.
  *   Matches the Gallery default of 4K (Gemma 4 E2B's context length).
+ * @property a2MaxOutputTokens A2's output is a small JSON object
+ *   (source / account / merchant candidates). 1K tokens is plenty and
+ *   dramatically faster than the 32K default; A2 callers pass this
+ *   override via [GemmaInferenceEngine.generatePredictionTracking].
  * @property temperature 0.2f = nearly deterministic. Expense extraction
  *   is structured work, not creative writing — keep this low.
  * @property topK nucleus sampling cutoff.
@@ -37,6 +41,7 @@ data class InferenceConfig(
     val modelFileName: String = BuildConfig.GEMMA_MODEL_FILENAME,
     val cacheDir: String? = null,
     val maxTokens: Int = 32768,
+    val a2MaxOutputTokens: Int = 1024,
     val temperature: Float = 0.2f,
     val topK: Int = 40,
     val topP: Float = 0.95f,

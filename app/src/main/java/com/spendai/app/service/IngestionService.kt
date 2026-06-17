@@ -98,62 +98,42 @@ class IngestionService : Service() {
         _progress.value = IngestionProgress.LoadingFromSource(0)
 
         ensureNotificationChannel()
-        val initial = buildNotification("Ingesting…", "Checking permissions")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                initial,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, initial)
-        }
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification("Ingesting…", "Starting"),
+        )
 
         runJob = scope.launch {
             val app = applicationContext as SpendAiApp
 
-            // 1. READ_SMS pre-check. Without it the OS provider returns
-            //    null and the pipeline silently completes with 0 rows.
-            if (ContextCompat.checkSelfPermission(
-                    applicationContext,
-                    Manifest.permission.READ_SMS,
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
+            // Engine init.
+            try {
+                if (app.gemmaInferenceEngine.state.value !is InferenceState.Ready) {
+                    publishProgress(IngestionProgress.EngineInitialising(labelFor(app.gemmaInferenceEngine.state.value)))
+                    app.gemmaInferenceEngine.initialize(applicationContext)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Engine init failed", t)
                 publishProgress(
                     IngestionProgress.Failure(
-                        "READ_SMS permission denied. Grant it in the Ingest sheet."
+                        "Engine failed to initialise: ${t.message ?: t.javaClass.simpleName}"
                     )
                 )
                 stopSelfSafely()
                 return@launch
             }
 
-            // 2. Auto-initialise the engine if it isn't already READY.
-            //    Engine load is the single longest pause in the run;
-            //    surfacing the state on the notification is the only
-            //    way the user knows "it's not stuck, the model is loading".
-            if (app.gemmaInferenceEngine.state.value !is InferenceState.Ready) {
-                publishProgress(
-                    IngestionProgress.EngineInitialising(
-                        currentState = app.gemmaInferenceEngine.state.value.javaClass.simpleName
-                    )
-                )
-                try {
-                    app.gemmaInferenceEngine.initialize(applicationContext)
-                } catch (t: Throwable) {
-                    Log.e(TAG, "Engine init failed", t)
-                    publishProgress(
-                        IngestionProgress.Failure(
-                            "Engine failed to initialise: ${t.message ?: t.javaClass.simpleName}"
-                        )
-                    )
-                    stopSelfSafely()
-                    return@launch
-                }
+            // Permission check (READ_SMS).
+            val hasSms = ContextCompat.checkSelfPermission(
+                applicationContext, Manifest.permission.READ_SMS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasSms) {
+                publishProgress(IngestionProgress.Failure("READ_SMS permission denied"))
+                stopSelfSafely()
+                return@launch
             }
 
-            // 3. Run the pipeline.
+            // Run the pipeline.
             val outcome = app.ingestionPipeline.run(
                 source = ContentResolverSmsSource(applicationContext),
                 range = range,
@@ -172,17 +152,10 @@ class IngestionService : Service() {
                 progress.currentState
             is IngestionProgress.LoadingFromSource -> "Ingesting…" to
                 "Loaded ${progress.seenSoFar} messages"
-            is IngestionProgress.DayStarting -> "Day ${progress.dayIndex} of ${progress.totalDays}" to
-                "${progress.messageCount} messages"
-            is IngestionProgress.MessageParsed -> "Day ${progress.dayIndex}" to
-                "Parsed ${progress.messageIndex}/${progress.totalMessages}"
-            is IngestionProgress.MessageResolved -> "Day ${progress.dayIndex}" to
-                "Resolved ${progress.messageIndex}/${progress.totalMessages}"
-            is IngestionProgress.CommittingDay -> "Day ${progress.dayIndex} of ${progress.totalDays}" to
-                "Committing…"
-            is IngestionProgress.DayCommitted ->
-                "Day ${progress.dayIndex}/${progress.totalDays}" to
-                "Committed (total: ${progress.commitCount})"
+            is IngestionProgress.MessageParsed -> "Ingesting" to
+                "Parsed ${progress.messageIndex + 1}/${progress.totalMessages}"
+            is IngestionProgress.MessageCommitted -> "Ingesting" to
+                "Committed ${progress.messageIndex + 1}/${progress.totalMessages}"
             is IngestionProgress.MessageSkipped -> "Skipped" to progress.reason
             is IngestionProgress.Done -> "Done" to doneLine(progress)
             is IngestionProgress.Failure -> "Failed" to progress.message
@@ -198,7 +171,7 @@ class IngestionService : Service() {
         val s = progress.summary
         val parts = buildList {
             add("${s.committedTransactions} committed")
-            add("${s.needsReview} to review")
+            if (s.skippedByA1 > 0) add("${s.skippedByA1} skipped (A1)")
             if (s.skippedByA2 > 0) add("${s.skippedByA2} skipped (A2)")
         }
         return parts.joinToString(", ")
@@ -291,4 +264,12 @@ class IngestionService : Service() {
             context.startService(intent)
         }
     }
+}
+
+private fun labelFor(state: InferenceState): String = when (state) {
+    is InferenceState.Uninitialized -> "Not loaded"
+    is InferenceState.Loading -> "Loading…"
+    is InferenceState.Ready -> "Ready on ${state.backendLabel}"
+    is InferenceState.Busy -> state.progress.toLabel()
+    is InferenceState.Error -> "Error: ${state.message}"
 }

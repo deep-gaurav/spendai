@@ -1,39 +1,60 @@
 package com.spendai.app.domain.agent
 
 import android.util.Log
+import androidx.room.withTransaction
+import com.spendai.app.data.local.AppDatabase
 import com.spendai.app.data.local.entity.Account
 import com.spendai.app.data.local.entity.FinancialSource
 import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.ParsedSms
-import com.spendai.app.data.local.entity.SourceInstrumentType
 import com.spendai.app.data.local.entity.SourceStatus
 import com.spendai.app.data.local.entity.Transaction
+import com.spendai.app.data.local.entity.TransactionDirection
+import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.TransactionRepository
-import com.spendai.app.domain.model.Confidence
 import com.spendai.app.domain.model.MerchantNormalizer
-import com.spendai.app.domain.model.Resolution
 import com.spendai.app.inference.GemmaInferenceEngine
+import com.spendai.app.inference.InferenceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
 
 /**
- * Agent 2: per-message entity resolver.
+ * Agent 2: per-message entity resolver AND committer.
  *
- * Takes a freshly parsed [ParsedSms] and a same-day [ResolutionContext]
- * bundle (known sources, accounts, merchants, recent transactions) and
- * decides:
- *  - which financial source / account / merchant (existing or new)
- *  - whether this transaction is the other half of a known transaction
- *    (self-transfer, refund, reversal)
+ * Takes a freshly parsed [ParsedSms] (A1 said TRANSACTION) and:
+ *  1. Loads a small slice of the local DB (top-N sources, accounts,
+ *     merchants by recency) into a prompt bundle.
+ *  2. Asks the model to link the transaction to existing rows
+ *     or propose new ones.
+ *  3. Materialises the source / account / merchant rows (insert
+ *     when "new", dedup on the existing indices).
+ *  4. Writes the `spend_transaction` row.
  *
- * On model failure, throws — the worker turns that into `Result.retry()`.
+ * Steps 3 and 4 happen inside a single Room `@Transaction` so the
+ * per-message commit is atomic. Returns the new transaction id.
+ *
+ * ## Auto-commit
+ *
+ * A2 commits every message A1 marked as a transaction. Confidence
+ * is preserved on the row for the edit UI to display but does NOT
+ * gate the commit. A1's `kind=IGNORE` is the only "don't commit"
+ * signal and is handled by the pipeline before A2 is called.
+ *
+ * ## Prompt size
+ *
+ * The merchant slice is capped at 100 rows by `firstSeenAt DESC` so
+ * the input bundle stays well under the 64K total context. Sources
+ * and accounts are also defensively capped (20 and 50). New senders
+ * land at the top of the recency list immediately because A2 calls
+ * this method sequentially per message.
  */
 class Agent2EntityResolver(
     private val engine: GemmaInferenceEngine,
+    private val database: AppDatabase,
     private val sourceRepository: FinancialSourceRepository,
     private val accountRepository: AccountRepository,
     private val merchantRepository: MerchantRepository,
@@ -42,7 +63,10 @@ class Agent2EntityResolver(
     private companion object {
         const val TAG = "Agent2EntityResolver"
         const val LOG_TRUNCATE_CHARS = 400
-        const val SAME_DAY_WINDOW_MILLIS: Long = 24L * 60L * 60L * 1000L
+        const val MAX_MERCHANTS = 100
+        const val MAX_SOURCES = 20
+        const val MAX_ACCOUNTS = 50
+        const val A2_MAX_OUTPUT_TOKENS = 65536
         fun truncate(s: String?): String {
             if (s == null) return "<null>"
             return if (s.length <= LOG_TRUNCATE_CHARS) s
@@ -50,57 +74,100 @@ class Agent2EntityResolver(
         }
     }
 
-
-
     /**
-     * Build the [ResolutionContext] from the live DB state and pass it
-     * along with the parsed SMS to the model. Returns the in-memory
-     * [Resolution] — the worker hands a list of these to Agent 3.
+     * @return the new [Transaction.id]. Throws on model failure
+     *   (no parseable JSON, or `a2Confidence` out of range) so the
+     *   pipeline can route to `skippedByA2++` and leave the
+     *   raw_sms row UNPARSED for a future retry.
      */
-    suspend fun resolve(parsed: ParsedSms): Resolution = withContext(Dispatchers.IO) {
-        val context = loadContext(parsed.txnAtMillis ?: System.currentTimeMillis())
+    suspend fun resolveAndCommit(parsed: ParsedSms): A2Outcome = withContext(Dispatchers.IO) {
+        require(engine.state.value is InferenceState.Ready) {
+            "Engine not READY (state=${engine.state.value}). Call initialize() first."
+        }
+        val context = loadContext()
         val userMessage = AgentPrompt.a2UserMessage(parsed, context.toBundleJson())
         val fullPrompt = AgentPrompt.A2_SYSTEM_INSTRUCTION + "\n\n" + userMessage
 
-        // Per-token progress is published into InferenceState.Busy so the
-        // home card can show "Decoded 142 tokens (agent2.resolve) · 8s".
         Log.d(TAG, "A2 input parsedSmsId=${parsed.id} a1RawJson: ${truncate(parsed.a1RawJson)}")
         Log.d(TAG, "A2 prompt sent to model (${fullPrompt.length} chars): ${truncate(fullPrompt)}")
-        val first = runCatching {
+        val firstText: String? = runCatching {
             engine.generatePredictionTracking(
                 prompt = fullPrompt,
                 stepLabel = "agent2.resolve",
+                maxOutputTokens = A2_MAX_OUTPUT_TOKENS,
             ).toList().joinToString("")
         }.onFailure { Log.w(TAG, "A2 first attempt failed: ${it.message}") }
             .getOrNull()
-        Log.d(TAG, "A2 raw model response (${first?.length ?: 0} chars): ${truncate(first)}")
-        val firstParsed = first?.let { AgentJsonParse.tryParse(it, A2Contract.serializer()) }
+        Log.d(TAG, "A2 raw model response (${firstText?.length ?: 0} chars): ${truncate(firstText)}")
+        val firstParsed = firstText?.let { AgentJsonParse.tryParse(it, A2Contract.serializer()) }
         Log.d(TAG, "A2 first-try parse: ${if (firstParsed != null) "OK a2Confidence=${firstParsed.a2Confidence}" else "FAILED (will retry)"}")
 
-        val contract = firstParsed ?: run {
-            val retry = runCatching {
+        // If firstParsed is non-null, firstText is necessarily non-null
+        // (firstParsed was derived from it). Same logic on the retry
+        // branch.
+        val (contract, responseText) = if (firstParsed != null) {
+            firstParsed to firstText
+        } else {
+            val retryText: String? = runCatching {
                 engine.generatePredictionTracking(
                     prompt = AgentPrompt.A2_CORRECTIVE_PROMPT,
                     stepLabel = "agent2.resolve.retry",
+                    maxOutputTokens = A2_MAX_OUTPUT_TOKENS,
                 ).toList().joinToString("")
             }.onFailure { Log.w(TAG, "A2 retry failed: ${it.message}") }
                 .getOrNull()
-            Log.d(TAG, "A2 retry raw model response (${retry?.length ?: 0} chars): ${truncate(retry)}")
-            retry?.let { AgentJsonParse.tryParse(it, A2Contract.serializer()) }
-        } ?: throw IllegalStateException("Agent 2 returned no parseable JSON for parsedSmsId=${parsed.id}")
-        Log.d(TAG, "A2 final contract: a2Confidence=${contract.a2Confidence}")
-
-        contract.toResolution(parsed.id).also {
-            // Defensive: clamp confidence into [0, 1] in case the model
-            // emitted something outside the contract.
-            require(it.a2Confidence in 0f..1f) {
-                "a2Confidence out of range: ${it.a2Confidence}"
+            Log.d(TAG, "A2 retry raw model response (${retryText?.length ?: 0} chars): ${truncate(retryText)}")
+            val retryParsed = retryText?.let { AgentJsonParse.tryParse(it, A2Contract.serializer()) }
+            if (retryParsed != null) {
+                retryParsed to retryText
+            } else {
+                // Carry the prompt (always available) and the
+                // better of the two responses (retry if it ran, else
+                // first) so the audit row can show what the model
+                // actually emitted before failing.
+                val partial = retryText ?: firstText
+                throw A2FailureException(
+                    prompt = fullPrompt,
+                    response = partial,
+                    cause = IllegalStateException(
+                        "Agent 2 returned no parseable JSON for parsedSmsId=${parsed.id}"
+                    ),
+                )
             }
         }
+        Log.d(TAG, "A2 final contract: a2Confidence=${contract.a2Confidence}")
+
+        // Defensive: clamp confidence into [0, 1] in case the model
+        // emitted something outside the contract.
+        require(contract.a2Confidence in 0f..1f) {
+            "a2Confidence out of range: ${contract.a2Confidence}"
+        }
+
+        val now = System.currentTimeMillis()
+        val txnId = database.withTransaction {
+            val sourceId = materialiseSource(contract.source, now)
+            val accountId = materialiseAccount(sourceId, contract.account, now)
+            val merchantId = materialiseMerchant(contract.merchant, now)
+            val txn = buildTransaction(
+                parsed = parsed,
+                accountId = accountId,
+                merchantId = merchantId,
+                a2Confidence = contract.a2Confidence,
+                now = now,
+            )
+            insertTransaction(txn)
+        }
+        Log.d(TAG, "A2 committed transactionId=$txnId parsedSmsId=${parsed.id}")
+        A2Outcome(
+            transactionId = txnId,
+            prompt = fullPrompt,
+            response = responseText,
+            a2Confidence = contract.a2Confidence,
+        )
     }
 
-    private suspend fun loadContext(centerMillis: Long): ResolutionContext {
-        val sources = sourceRepository.allOnce().map {
+    private suspend fun loadContext(): ResolutionContext {
+        val sources = sourceRepository.allOnce().take(MAX_SOURCES).map {
             ContextSource(
                 id = it.id,
                 sourceKey = it.sourceKey,
@@ -109,7 +176,7 @@ class Agent2EntityResolver(
                 status = it.status,
             )
         }
-        val accounts = accountRepository.getAllOnce().map {
+        val accounts = accountRepository.getAllOnce().take(MAX_ACCOUNTS).map {
             ContextAccount(
                 id = it.id,
                 sourceId = it.sourceId,
@@ -119,53 +186,124 @@ class Agent2EntityResolver(
                 currency = it.currency,
             )
         }
-        val merchants = merchantRepository.getAllOnce().map {
+        val merchants = merchantRepository.getRecent(MAX_MERCHANTS).map {
             ContextMerchant(
                 id = it.id, name = it.name,
                 normalizedName = it.normalizedName, vpa = it.vpa,
-            )
-        }
-        val since = centerMillis - SAME_DAY_WINDOW_MILLIS
-        val txns = transactionRepository.getSince(since).map { txn ->
-            val merchantName = txn.merchantId
-                ?.let { merchantRepository.getById(it)?.name }
-            val accountMasked = accountRepository.getById(txn.accountId)?.maskedNumber
-                ?: "unknown"
-            ContextTransaction(
-                id = txn.id,
-                parsedSmsId = txn.parsedSmsId,
-                amountPaise = txn.amountPaise,
-                currency = txn.currency,
-                direction = txn.direction,
-                txnAtMillis = txn.txnAtMillis,
-                merchantName = merchantName,
-                accountMasked = accountMasked,
             )
         }
         return ResolutionContext(
             knownSources = sources,
             knownAccounts = accounts,
             knownMerchants = merchants,
-            recentTransactions = txns,
         )
     }
 
+    private suspend fun materialiseSource(source: SourceChoice, now: Long): Long = when (source) {
+        is SourceChoice.Existing -> source.sourceId
+        is SourceChoice.New -> {
+            sourceRepository.findByKey(source.sourceKey)?.id
+                ?: sourceRepository.upsert(
+                    FinancialSource(
+                        sourceKey = source.sourceKey,
+                        deducedType = source.deducedType,
+                        userLabel = source.suggestedDisplayName,
+                        firstSeenTimestamp = now,
+                        displayName = source.suggestedDisplayName,
+                        bankName = source.suggestedBankName,
+                        instrumentType = source.suggestedInstrumentType,
+                        status = SourceStatus.CONFIRMED.name,
+                        confirmedAt = now,
+                    )
+                )
+        }
+    }
+
+    private suspend fun materialiseAccount(sourceId: Long, account: AccountChoice, now: Long): Long =
+        when (account) {
+            is AccountChoice.Existing -> account.accountId
+            is AccountChoice.New -> {
+                accountRepository.findBySourceAndMasked(sourceId, account.maskedNumber)?.id
+                    ?: accountRepository.insert(
+                        Account(
+                            sourceId = sourceId,
+                            instrumentType = account.instrumentType,
+                            issuer = account.issuer,
+                            maskedNumber = account.maskedNumber,
+                            currency = account.currency,
+                            createdAt = now,
+                        )
+                    )
+            }
+        }
+
+    private suspend fun materialiseMerchant(merchant: MerchantChoice, now: Long): Long? =
+        when (merchant) {
+            is MerchantChoice.Existing -> merchant.merchantId
+            is MerchantChoice.New -> {
+                val localNormalized = MerchantNormalizer.normalize(merchant.name)
+                    .ifEmpty { merchant.normalizedName }
+                val modelNormalized = merchant.normalizedName
+                merchantRepository.findByNormalizedName(localNormalized)?.id
+                    ?: merchantRepository.findByNormalizedName(modelNormalized)?.id
+                    ?: merchantRepository.findByVpa(merchant.vpa ?: "")?.id
+                    ?: merchantRepository.insert(
+                        Merchant(
+                            name = merchant.name,
+                            normalizedName = localNormalized,
+                            vpa = merchant.vpa,
+                            firstSeenAt = now,
+                        )
+                    )
+            }
+            is MerchantChoice.None -> null
+        }
+
+    private suspend fun insertTransaction(txn: Transaction): Long =
+        transactionRepository.insert(txn)
+
+    private fun buildTransaction(
+        parsed: ParsedSms,
+        accountId: Long,
+        merchantId: Long?,
+        a2Confidence: Float,
+        now: Long,
+    ): Transaction {
+        val amountPaise = parsed.amountPaise ?: 0L
+        val direction = when (parsed.direction) {
+            TransactionDirection.CREDIT.name -> TransactionDirection.CREDIT
+            else -> TransactionDirection.DEBIT
+        }
+        val currency = parsed.currency ?: "INR"
+        val txnAtMillis = parsed.txnAtMillis ?: now
+        return Transaction(
+            accountId = accountId,
+            merchantId = merchantId,
+            rawSmsId = parsed.rawSmsId,
+            parsedSmsId = parsed.id,
+            amountPaise = amountPaise,
+            currency = currency,
+            direction = direction.name,
+            txnAtMillis = txnAtMillis,
+            channel = parsed.channel,
+            referenceNo = parsed.referenceNo,
+            status = TransactionStatus.CONFIRMED.name,
+            confidence = a2Confidence,
+            notes = null,
+            createdAt = now,
+        )
+    }
 }
 
-
-
 /**
- * In-memory bundle of everything the resolver needs to ground its
- * decisions: the rows already in the local DB plus the recent
- * transactions that might be the other half of a self-transfer.
- * Serialized to a flat JSON string by [toBundleJson] and concatenated
- * with the parsed SMS as the A2 user message.
+ * In-memory bundle of the database slice A2 ships into its prompt.
+ * Serialised to a flat JSON string by [toBundleJson] and
+ * concatenated with the parsed SMS as the A2 user message.
  */
 data class ResolutionContext(
     val knownSources: List<ContextSource> = emptyList(),
     val knownAccounts: List<ContextAccount> = emptyList(),
     val knownMerchants: List<ContextMerchant> = emptyList(),
-    val recentTransactions: List<ContextTransaction> = emptyList(),
 ) {
     fun toBundleJson(): String = buildString {
         append("{\"knownSources\":[")
@@ -197,19 +335,6 @@ data class ResolutionContext(
                 .append(",\"normalizedName\":\"").append(escape(m.normalizedName)).append("\"")
                 .append('}')
         }
-        append("],\"recentTransactions\":[")
-        recentTransactions.forEachIndexed { i, t ->
-            if (i > 0) append(',')
-            append("{\"id\":").append(t.id)
-                .append(",\"parsedSmsId\":").append(t.parsedSmsId)
-                .append(",\"amountPaise\":").append(t.amountPaise)
-                .append(",\"currency\":\"").append(escape(t.currency)).append("\"")
-                .append(",\"direction\":\"").append(escape(t.direction)).append("\"")
-                .append(",\"txnAtMillis\":").append(t.txnAtMillis)
-                .append(",\"merchantName\":").append(quoteOrNull(t.merchantName))
-                .append(",\"accountMasked\":\"").append(escape(t.accountMasked)).append("\"")
-                .append('}')
-        }
         append("]}")
     }
     private fun escape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -239,107 +364,4 @@ data class ContextMerchant(
     val name: String,
     val normalizedName: String,
     val vpa: String?,
-)
-
-data class ContextTransaction(
-    val id: Long,
-    val parsedSmsId: Long,
-    val amountPaise: Long,
-    val currency: String,
-    val direction: String,
-    val txnAtMillis: Long,
-    val merchantName: String?,
-    val accountMasked: String,
-)
-
-/**
- * Helper for the worker: pre-compute the candidates' inserted IDs
- * (creating any new source / account / merchant rows) so Agent 3
- * can reference them by id in its final [Commit] output.
- */
-suspend fun Resolution.materialise(
-    sourceRepository: FinancialSourceRepository,
-    accountRepository: AccountRepository,
-    merchantRepository: MerchantRepository,
-    rawSmsId: Long,
-    now: Long,
-): MaterialisedResolution {
-    val sourceId = when (val s = sourceCandidate) {
-        is com.spendai.app.domain.model.SourceCandidate.Existing -> s.sourceId
-        is com.spendai.app.domain.model.SourceCandidate.New -> {
-            sourceRepository.findByKey(s.sourceKey)?.id ?: sourceRepository.upsert(
-                FinancialSource(
-                    sourceKey = s.sourceKey,
-                    deducedType = s.deducedType,
-                    userLabel = s.suggestedDisplayName,
-                    firstSeenTimestamp = now,
-                    displayName = s.suggestedDisplayName,
-                    bankName = s.suggestedBankName,
-                    instrumentType = s.suggestedInstrumentType.name,
-                    status = if (s.confidence >= Confidence.AUTO_COMMIT_THRESHOLD)
-                        SourceStatus.CONFIRMED.name
-                    else SourceStatus.NEEDS_REVIEW.name,
-                    confirmedAt = if (s.confidence >= Confidence.AUTO_COMMIT_THRESHOLD) now else null,
-                )
-            )
-        }
-    }
-
-    val accountId = when (val a = accountCandidate) {
-        is com.spendai.app.domain.model.AccountCandidate.Existing -> a.accountId
-        is com.spendai.app.domain.model.AccountCandidate.New -> {
-            accountRepository.findBySourceAndMasked(sourceId, a.maskedNumber)?.id
-                ?: accountRepository.insert(
-                    Account(
-                        sourceId = sourceId,
-                        instrumentType = a.instrumentType.name,
-                        issuer = a.issuer,
-                        maskedNumber = a.maskedNumber,
-                        currency = a.currency,
-                        createdAt = now,
-                    )
-                )
-        }
-    }
-
-    val merchantId: Long? = when (val m = merchantCandidate) {
-        is com.spendai.app.domain.model.MerchantCandidate.Existing -> m.merchantId
-        is com.spendai.app.domain.model.MerchantCandidate.New -> {
-            val normalized = MerchantNormalizer.normalize(m.name).ifEmpty { m.normalizedName }
-            merchantRepository.findByNormalizedName(normalized)?.id
-                ?: merchantRepository.findByVpa(m.vpa ?: "")?.id
-                ?: run {
-                    val row = Merchant(
-                        name = m.name,
-                        normalizedName = normalized,
-                        vpa = m.vpa,
-                        firstSeenAt = now,
-                    )
-                    merchantRepository.insert(row)
-                }
-        }
-        is com.spendai.app.domain.model.MerchantCandidate.None -> null
-    }
-
-    return MaterialisedResolution(
-        parsedSmsId = parsedSmsId,
-        rawSmsId = rawSmsId,
-        sourceId = sourceId,
-        accountId = accountId,
-        merchantId = merchantId,
-        possibleLink = possibleLink,
-        a2Confidence = a2Confidence,
-        sourceCandidate = sourceCandidate,
-    )
-}
-
-data class MaterialisedResolution(
-    val parsedSmsId: Long,
-    val rawSmsId: Long,
-    val sourceId: Long,
-    val accountId: Long,
-    val merchantId: Long?,
-    val possibleLink: com.spendai.app.domain.model.PossibleLink?,
-    val a2Confidence: Float,
-    val sourceCandidate: com.spendai.app.domain.model.SourceCandidate,
 )

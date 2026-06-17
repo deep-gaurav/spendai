@@ -57,6 +57,7 @@ fun HomeScreen(
     onRerunSetup: () -> Unit,
     onOpenReview: () -> Unit,
     onOpenTransactions: () -> Unit,
+    onOpenDebugLog: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -82,6 +83,14 @@ fun HomeScreen(
                         CartoonIcon(id = R.drawable.ic_more_cartoon, size = 32.dp)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Debug log") },
+                            onClick = {
+                                menuOpen = false
+                                onOpenDebugLog()
+                            },
+                            leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
+                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.home_overflow_rerun)) },
                             onClick = {
@@ -114,30 +123,9 @@ fun HomeScreen(
                     onPickRange = { sheetOpen = true },
                     onCancel = viewModel::cancelIngest,
                 )
-                if (ui.pendingSourceCount > 0) {
-                    CalloutCard(
-                        icon = R.drawable.ic_review_cartoon,
-                        text = stringResource(
-                            R.string.home_callout_source_count,
-                            ui.pendingSourceCount,
-                            if (ui.pendingSourceCount == 1) "" else "s",
-                        ),
-                        cta = stringResource(R.string.home_callout_review_cta),
-                        onClick = onOpenReview,
-                    )
-                }
-                if (ui.pendingTxnCount > 0) {
-                    CalloutCard(
-                        icon = R.drawable.ic_bell_cartoon,
-                        text = stringResource(
-                            R.string.home_callout_txn_count,
-                            ui.pendingTxnCount,
-                            if (ui.pendingTxnCount == 1) "" else "s",
-                        ),
-                        cta = stringResource(R.string.home_callout_review_cta),
-                        onClick = onOpenReview,
-                    )
-                }
+                // No review queue in Phase 3+; A2 auto-commits every
+                // transaction A1 said TRANSACTION. The user can still
+                // fix anything from the transactions list.
                 RecentActivityCard(
                     transactions = ui.recentTransactions,
                     onSeeAll = onOpenTransactions,
@@ -288,41 +276,33 @@ private fun ProgressBlock(progress: IngestionProgress) {
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        is IngestionProgress.DayStarting -> {
-            Text(
-                text = "Day ${progress.dayIndex} of ${progress.totalDays} — " +
-                    "${progress.messageCount} messages",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
         is IngestionProgress.MessageParsed -> {
             val total = progress.totalMessages
             val current = progress.messageIndex
             Text(
-                text = "Day ${progress.dayIndex} — parsed $current/$total",
+                text = "Parsed $current/$total",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (total > 0) {
                 LinearProgressIndicator(
-                    progress = { current.toFloat() / total },
+                    progress = { (current + 1).toFloat() / total },
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
-        is IngestionProgress.MessageResolved -> {
+        is IngestionProgress.MessageCommitted -> {
             val total = progress.totalMessages
             val current = progress.messageIndex
             Text(
-                text = "Day ${progress.dayIndex} — resolved $current/$total",
+                text = "Committed $current/$total",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (total > 0) {
                 LinearProgressIndicator(
-                    progress = { current.toFloat() / total },
+                    progress = { (current + 1).toFloat() / total },
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -331,33 +311,23 @@ private fun ProgressBlock(progress: IngestionProgress) {
         is IngestionProgress.MessageSkipped -> {
             val total = progress.totalMessages
             Text(
-                text = "Day ${progress.dayIndex} — skipped ${progress.messageIndex}/$total: ${progress.reason}",
+                text = "Skipped ${progress.messageIndex + 1}/$total: ${progress.reason}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )
             if (total > 0) {
                 LinearProgressIndicator(
-                    progress = { progress.messageIndex.toFloat() / total },
+                    progress = { (progress.messageIndex + 1).toFloat() / total },
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.error,
                 )
             }
         }
-        is IngestionProgress.CommittingDay -> Text(
-            text = "Day ${progress.dayIndex} of ${progress.totalDays} — committing…",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        is IngestionProgress.DayCommitted -> Text(
-            text = "Day ${progress.dayIndex} of ${progress.totalDays} — ${progress.commitCount} committed",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
         is IngestionProgress.Done -> {
             val s = progress.summary
             val parts = buildList {
                 add("${s.committedTransactions} committed")
-                add("${s.needsReview} to review")
+                if (s.skippedByA1 > 0) add("${s.skippedByA1} skipped (A1)")
                 if (s.skippedByA2 > 0) add("${s.skippedByA2} skipped (A2)")
             }
             Text(

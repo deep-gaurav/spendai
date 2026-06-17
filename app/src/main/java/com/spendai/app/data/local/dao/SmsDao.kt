@@ -50,6 +50,9 @@ interface SmsDao {
      * Used by [com.spendai.app.domain.ingestion.IngestionPipeline]
      * to pick up the rows it just inserted from a [SmsSource].
      */
+    @Query("SELECT * FROM raw_sms WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): RawSmsMessage?
+
     @Query("SELECT * FROM raw_sms WHERE status = :status AND timestamp >= :startMillis AND timestamp < :endMillis ORDER BY timestamp ASC")
     suspend fun getByStatusInRangeOnce(
         status: SmsStatus = SmsStatus.UNPARSED,

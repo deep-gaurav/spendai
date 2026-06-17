@@ -13,7 +13,6 @@ class A2ContractTest {
               "source":  { "kind": "existing", "sourceId": 5, "confidence": 0.95 },
               "account": { "kind": "existing", "accountId": 12, "confidence": 0.9 },
               "merchant":{ "kind": "existing", "merchantId": 42, "confidence": 0.9 },
-              "possibleLink": null,
               "a2Confidence": 0.9
             }
         """.trimIndent()
@@ -60,17 +59,17 @@ class A2ContractTest {
         assertTrue(parsed!!.merchant is MerchantChoice.None)
     }
 
-    @Test fun `parses possibleLink`() {
+    @Test fun `a2Confidence is required`() {
         val raw = """
             {
               "source":  { "kind": "existing", "sourceId": 1, "confidence": 0.9 },
               "account": { "kind": "existing", "accountId": 2, "confidence": 0.9 },
-              "merchant":{ "kind": "none", "confidence": 0.7 },
-              "possibleLink": { "partnerParsedSmsId": 99, "linkType": "SELF_TRANSFER", "confidence": 0.8 },
-              "a2Confidence": 0.9
+              "merchant":{ "kind": "none", "confidence": 0.7 }
             }
         """.trimIndent()
+        // a2Confidence defaults to 0f in the data class; the resolver
+        // checks the range itself.
         val parsed = AgentJsonParse.tryParse(raw, A2Contract.serializer())
-        assertEquals(99L, parsed!!.possibleLink!!.partnerParsedSmsId)
+        assertEquals(0f, parsed!!.a2Confidence, 0.0001f)
     }
 }

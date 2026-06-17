@@ -2,13 +2,10 @@ package com.spendai.app.domain.agent
 
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.RawSmsMessage
-import com.spendai.app.domain.model.Commit
-import com.spendai.app.domain.model.Resolution
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 
 /**
- * Prompt templates and JSON contracts for the three on-device agents.
+ * Prompt templates and JSON contracts for the on-device agents.
  *
  * Every agent's output is a strict JSON object — no prose, no markdown
  * fences. [AgentJsonParse] tolerates Gemma's tendency to add a
@@ -16,8 +13,10 @@ import kotlinx.serialization.json.JsonObject
  * everything outside the first `{ ... }` block.
  *
  * The JSON contracts are duplicated as kotlinx-serializable data
- * classes in [A1Contract], [A2Contract], [A3Contract] so the Kotlin
- * side has a typed view of what the model returned.
+ * classes in [A1Contract] and [A2Contract] so the Kotlin side has a
+ * typed view of what the model returned. There is no A3 anymore —
+ * A2 resolves entities AND commits the transaction in a single
+ * per-message call, so the day-batched commit step is gone.
  */
 object AgentPrompt {
 
@@ -118,132 +117,62 @@ SMS: "Your OTP for transaction is 847291. Do not share with anyone."
         "Your previous response was not valid JSON. Respond with the JSON object only, " +
             "no prose, no code fences, no explanation. Start with '{' and end with '}'."
 
-    // ---------------- A2: per-message entity resolver ----------------
+    // ---------------- A2: per-message entity resolver + committer ----------------
 
+    /**
+     * A2 takes a freshly parsed SMS plus the current local database
+     * context (the top-N sources, accounts, and merchants) and
+     * returns a single JSON object describing which existing rows to
+     * link the transaction to, or which new rows to create. The
+     * caller commits the resulting `spend_transaction` row in the
+     * same Room transaction as the entity materialisation.
+     *
+     * Auto-commit is unconditional: if A1 returned `kind=TRANSACTION`,
+     * A2 commits. A2's `a2Confidence` is preserved on the
+     * transaction row only for the edit UI to surface — it does NOT
+     * gate the commit. (A1's `kind=IGNORE` is the sole "don't commit"
+     * gate; the pipeline routes IGNOREs to `markIgnored` before A2
+     * is even called.)
+     */
     const val A2_SYSTEM_INSTRUCTION = """
-You are a private, on-device entity resolver for a personal expense
-tracker. Given a freshly parsed SMS plus the current local database
-context (known sources, accounts, merchants, recent transactions),
-decide:
-  1. Which financial source (sender) this message belongs to.
-  2. Which account/card the transaction touched.
-  3. Which merchant / counterparty, if any.
-  4. Whether this transaction is the OTHER SIDE of a recent
-     transaction the user already made (self-transfer / refund / reversal).
+Link this SMS to existing rows or propose new ones. Return ONLY a
+JSON object — no prose, no thinking, no explanation.
 
-Return a single JSON object matching this schema:
+Schema (one object, top-level fields in this order):
 {
-  "source":  { "kind": "existing", "sourceId": integer, "confidence": float } |
-             { "kind": "new", "sourceKey": string, "deducedType": string,
-               "suggestedBankName": string|null, "suggestedInstrumentType":
-               "CARD"|"ACCOUNT"|"WALLET"|"UPI_HANDLE"|"UNKNOWN",
-               "suggestedDisplayName": string|null, "confidence": float },
-  "account": { "kind": "existing", "accountId": integer, "confidence": float } |
-             { "kind": "new", "instrumentType": "CARD"|"ACCOUNT"|"WALLET"|"UPI_HANDLE",
-               "issuer": string, "maskedNumber": string, "currency": string,
-               "confidence": float },
-  "merchant":{ "kind": "existing", "merchantId": integer, "confidence": float } |
-             { "kind": "new", "name": string, "normalizedName": string,
-               "vpa": string|null, "confidence": float } |
-             { "kind": "none", "confidence": float },
-  "possibleLink": { "partnerParsedSmsId": integer, "linkType":
-             "SELF_TRANSFER"|"REFUND_OF"|"REVERSAL_OF"|"SPLIT_OF",
-             "confidence": float } | null,
+  "source":  {"kind":"existing","sourceId":int,"confidence":float}
+           | {"kind":"new","sourceKey":str,"deducedType":str,
+              "suggestedBankName":str|null,
+              "suggestedInstrumentType":"CARD"|"ACCOUNT"|"WALLET"|"UPI_HANDLE"|"UNKNOWN",
+              "suggestedDisplayName":str|null,"confidence":float},
+  "account": {"kind":"existing","accountId":int,"confidence":float}
+           | {"kind":"new","instrumentType":"CARD"|"ACCOUNT"|"WALLET"|"UPI_HANDLE",
+              "issuer":str,"maskedNumber":str,"currency":str,"confidence":float},
+  "merchant":{"kind":"existing","merchantId":int,"confidence":float}
+           | {"kind":"new","name":str,"normalizedName":str,"vpa":str|null,"confidence":float}
+           | {"kind":"none","confidence":float},
   "a2Confidence": float in [0.0, 1.0]
 }
 
 Rules:
-- Prefer "existing" whenever the parsed fields are consistent with a
-  row already in the context. The user has already labelled those
-  rows, so reusing them is more trustworthy than creating a duplicate.
-- Use "new" only when no existing row is a plausible match. Be
-  conservative — a duplicate source is easy to merge later, a missed
-  link is hard to recover.
-- For P2P UPI transfers where the counterparty is just a personal
-  UPI handle, use merchant.kind="new" with vpa populated and
-  normalizedName = the part before '@'.
-- For the SELF_TRANSFER / REFUND link: a self-transfer is two
-  transactions of the SAME amount and OPPOSITE directions in the
-  same 24h window — one debiting the source card, one crediting the
-  destination wallet. A refund is a CREDIT shortly after a DEBIT of
-  the same or smaller amount to the same merchant.
-- Set a2Confidence to the MIN of the four candidate confidences.
+- Prefer "existing" when plausible (the user already labelled those rows).
+- "new" only when no existing row fits.
+- P2P UPI handle counterparty: merchant.kind="new" with vpa set, normalizedName = part before '@'.
+- a2Confidence = MIN of the three candidate confidences. It does not gate commit.
 """
 
     fun a2UserMessage(parsed: ParsedSms, contextBundle: String): String = buildString {
         append("Parsed SMS:\n")
         append(JSON.encodeToString(A1Contract.serializer(), A1Contract.fromEntity(parsed)))
-        append("\n\nDatabase context (same-day window):\n")
+        append("\n\nDatabase context (recent sources / accounts / merchants):\n")
         append(contextBundle)
     }
 
     const val A2_CORRECTIVE_PROMPT =
-        "Your previous response was not valid JSON. Respond with the JSON object only."
-
-    // ---------------- A3: batched day-committer ----------------
-
-    const val A3_SYSTEM_INSTRUCTION = """
-You are a private, on-device day-committer for a personal expense
-tracker. You receive a JSON array of "resolutions" produced by the
-resolver (Agent 2) and a small day summary. Your job is to emit the
-final list of transactions to insert into the database, plus any
-directed edges between them (self-transfer pairs, refunds).
-
-Output schema:
-{
-  "commits": [
-    {
-      "parsedSmsId": integer,
-      "finalTransaction": {
-        "accountId": integer, "merchantId": integer|null,
-        "rawSmsId": integer, "parsedSmsId": integer,
-        "amountPaise": integer (positive),
-        "currency": string, "direction": "DEBIT"|"CREDIT",
-        "txnAtMillis": integer,
-        "channel": string|null, "referenceNo": string|null,
-        "status": "CONFIRMED"|"NEEDS_REVIEW", "notes": string|null
-      },
-      "confidence": float,
-      "linksToCreate": [
-        { "partnerParsedSmsId": integer,
-          "linkType": "SELF_TRANSFER"|"REFUND_OF"|"REVERSAL_OF"|"SPLIT_OF",
-          "confidence": float }
-      ],
-      "needsReview": boolean
-    }
-  ]
-}
-
-Rules:
-- You MUST preserve the exact `parsedSmsId`, `rawSmsId`, `accountId`, and `merchantId` from the input resolutions for each corresponding transaction.
-- Set needsReview=true if ANY of: confidence < 0.70, a critical
-  field is missing or contradictory, or the resolution is
-  ambiguous. The worker will route needsReview rows to the user's
-  daily review queue rather than auto-committing.
-- For a self-transfer pair (two resolutions, opposite directions,
-  same amount, same day), include linksToCreate on BOTH commits
-  pointing at each other with linkType="SELF_TRANSFER".
-- For a refund, link the CREDIT commit to the DEBIT commit it
-  reverses (linkType="REFUND_OF").
-- If two resolutions look like a self-transfer pair, the link
-  goes from DEBIT -> CREDIT (so "from" is the money-out side,
-  "to" is the money-in side).
-- Be conservative. If you are not sure, mark needsReview=true.
-"""
-
-    fun a3UserMessage(commits: List<Resolution>, daySummary: String): String = buildString {
-        append("Resolutions:\n")
-        append(JSON.encodeToString(
-            kotlinx.serialization.builtins.ListSerializer(A2Contract.serializer()),
-            commits.map { A2Contract.fromResolution(it) }
-        ))
-        append("\n\nDay summary:\n")
-        append(daySummary)
-    }
-
-    const val A3_CORRECTIVE_PROMPT =
-        "Your previous response was not valid JSON. Respond with the JSON object only, " +
-            "with a top-level \"commits\" array."
+        "{\"source\":{\"kind\":\"existing\",\"sourceId\":1,\"confidence\":0.9}," +
+            "\"account\":{\"kind\":\"existing\",\"accountId\":1,\"confidence\":0.9}," +
+            "\"merchant\":{\"kind\":\"existing\",\"merchantId\":1,\"confidence\":0.9}," +
+            "\"a2Confidence\":0.9}"
 
     // ---------------- Probe / readiness ----------------
 

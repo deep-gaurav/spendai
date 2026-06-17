@@ -35,6 +35,9 @@ import com.spendai.app.ui.review.ReviewScreen
 import com.spendai.app.ui.setup.SetupViewModel
 import com.spendai.app.ui.test.TestScreen
 import com.spendai.app.ui.transactions.TransactionsScreen
+import com.spendai.app.ui.edit.EditTransactionScreen
+import com.spendai.app.ui.debug.DebugLogScreen
+import com.spendai.app.ui.debug.DebugLogDetailScreen
 
 /**
  * Onboarding routes are the cold-start destinations and the only
@@ -50,6 +53,11 @@ object Routes {
     const val TRANSACTIONS = "transactions"
     const val INSIGHTS = "insights"
     const val REVIEW = "review"
+    const val DEBUG_LOG = "debugLog"
+    const val DEBUG_LOG_DETAIL = "debugLogDetail/{id}"
+    fun debugLogDetail(id: Long) = "debugLogDetail/$id"
+    const val TRANSACTION_DETAIL = "transactionDetail/{id}"
+    fun transactionDetail(id: Long) = "transactionDetail/$id"
 }
 
 private data class BottomDest(
@@ -138,12 +146,47 @@ fun SpendAiNavHost(
                     },
                     onOpenReview = { navController.navigate(Routes.REVIEW) },
                     onOpenTransactions = { navController.navigate(Routes.TRANSACTIONS) },
+                    onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
                 )
             }
-            composable(Routes.TRANSACTIONS) { TransactionsScreen() }
+            composable(Routes.TRANSACTIONS) {
+                TransactionsScreen(
+                    onTransactionClick = { id ->
+                        navController.navigate(Routes.transactionDetail(id))
+                    },
+                )
+            }
+            composable(
+                route = Routes.TRANSACTION_DETAIL,
+                arguments = listOf(androidx.navigation.navArgument("id") { type = androidx.navigation.NavType.LongType }),
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getLong("id") ?: 0L
+                EditTransactionScreen(
+                    transactionId = id,
+                    onBack = { navController.popBackStack() },
+                )
+            }
             composable(Routes.INSIGHTS) { InsightsScreen() }
             composable(Routes.REVIEW) {
                 ReviewScreen()
+            }
+            composable(Routes.DEBUG_LOG) {
+                DebugLogScreen(
+                    onBack = { navController.popBackStack() },
+                    onRowClick = { id ->
+                        navController.navigate(Routes.debugLogDetail(id))
+                    },
+                )
+            }
+            composable(
+                route = Routes.DEBUG_LOG_DETAIL,
+                arguments = listOf(androidx.navigation.navArgument("id") { type = androidx.navigation.NavType.LongType }),
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getLong("id") ?: 0L
+                DebugLogDetailScreen(
+                    logId = id,
+                    onBack = { navController.popBackStack() },
+                )
             }
         }
     }

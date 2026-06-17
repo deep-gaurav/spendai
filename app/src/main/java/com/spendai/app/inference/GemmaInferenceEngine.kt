@@ -140,18 +140,24 @@ class GemmaInferenceEngine {
             "Engine not READY (state=${_state.value}). Call initialize() first."
         }
         val sb = StringBuilder()
-        runSession(prompt = prompt, stepLabel = "") { chunk -> sb.append(chunk) }
+        runSession(prompt = prompt, stepLabel = "", maxOutputTokens = null) { chunk -> sb.append(chunk) }
         sb.toString()
     }
 
+    /**
+     * Streaming variant. A1 / A2 both use this so the home card can
+     * show per-token progress. A2 passes [maxOutputTokens] to cap
+     * the decode budget for its small JSON output.
+     */
     fun generatePredictionTracking(
         prompt: String,
         stepLabel: String,
+        maxOutputTokens: Int? = null,
     ): Flow<String> = flow {
         require(_state.value is InferenceState.Ready) {
             "Engine not READY (state=${_state.value}). Call initialize() first."
         }
-        runSession(prompt = prompt, stepLabel = stepLabel) { chunk -> emit(chunk) }
+        runSession(prompt = prompt, stepLabel = stepLabel, maxOutputTokens = maxOutputTokens) { chunk -> emit(chunk) }
     }.flowOn(Dispatchers.IO)
 
     suspend fun cancelCurrent() = withContext(Dispatchers.IO) {
@@ -167,11 +173,15 @@ class GemmaInferenceEngine {
     private suspend fun runSession(
         prompt: String,
         stepLabel: String,
+        maxOutputTokens: Int?,
         onChunk: suspend (String) -> Unit,
     ) {
         val eng = engine
         if (eng != null) {
-            // Local fallback (tests)
+            // Local fallback (tests) — output-token cap is enforced by
+            // the local SamplerConfig in SessionConfig; the per-call
+            // override is intentionally a no-op here so the unit tests
+            // don't need to know about it.
             runSessionLocal(prompt, stepLabel, onChunk, eng)
             return
         }
@@ -181,7 +191,7 @@ class GemmaInferenceEngine {
             val startedAt = System.currentTimeMillis()
             _state.value = InferenceState.Busy(InferenceStepProgress(stepLabel, 0, startedAt))
             try {
-                val response = callGeminiApi(prompt)
+                val response = callGeminiApi(prompt, maxOutputTokensOverride = maxOutputTokens)
                 val tokensCount = response.split(Regex("\\s+")).size
                 _state.value = InferenceState.Busy(InferenceStepProgress(stepLabel, tokensCount, startedAt))
                 onChunk(response)
@@ -365,7 +375,8 @@ class GemmaInferenceEngine {
 
     private suspend fun callGeminiApi(
         prompt: String,
-        systemInstruction: String? = null
+        systemInstruction: String? = null,
+        maxOutputTokensOverride: Int? = null,
     ): String = withContext(Dispatchers.IO) {
         val ctx = initContext ?: throw IOException("GemmaInferenceEngine not initialized")
         val apiKey = getSavedApiKey(ctx)
@@ -373,7 +384,7 @@ class GemmaInferenceEngine {
             throw IOException("Gemini API Key is not set. Please set it in onboarding.")
         }
 
-
+        val effectiveMaxOutputTokens = maxOutputTokensOverride ?: (currentConfig?.maxTokens ?: 32768)
 
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val requestBodyJson = buildJsonObject {
@@ -397,7 +408,7 @@ class GemmaInferenceEngine {
             }
             putJsonObject("generationConfig") {
                 put("temperature", 0.2)
-                put("maxOutputTokens", currentConfig?.maxTokens ?: 32768)
+                put("maxOutputTokens", effectiveMaxOutputTokens)
             }
         }
 
@@ -453,9 +464,13 @@ class GemmaInferenceEngine {
                 return@withContext text
             }
 
-            if (responseCode == 429 || responseCode == 503) {
-                Log.w(TAG, "Rate limit / service busy ($responseCode) on attempt $attempt/$maxAttempts. Waiting 60 seconds before retry...")
-                kotlinx.coroutines.delay(60000)
+            if (responseCode in TRANSIENT_RETRY_CODES) {
+                Log.w(
+                    TAG,
+                    "Transient error ($responseCode) on attempt $attempt/$maxAttempts. " +
+                        "Waiting 60 seconds before retry...",
+                )
+                kotlinx.coroutines.delay(60_000)
             } else {
                 throw IOException("Gemini API call failed with code $responseCode: $errorMsg")
             }
@@ -532,6 +547,19 @@ class GemmaInferenceEngine {
         const val TAG = "GemmaInferenceEngine"
 
         const val GEMINI_MODEL = "gemma-4-31b-it"
+
+        /**
+         * HTTP codes that signal a transient infrastructure error
+         * and warrant a long backoff + retry:
+         *  - 429 Too Many Requests
+         *  - 500 Internal Server Error
+         *  - 502 Bad Gateway
+         *  - 503 Service Unavailable
+         *  - 504 Gateway Timeout
+         * 4xx client errors (400, 401, 403, 404) are not retried —
+         * they would fail the same way on the next attempt.
+         */
+        val TRANSIENT_RETRY_CODES: Set<Int> = setOf(429, 500, 502, 503, 504)
 
         const val SYSTEM_INSTRUCTION =
             "You are a private, on-device financial SMS parser. " +

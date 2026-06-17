@@ -2,7 +2,7 @@ package com.spendai.app.domain.ingestion
 
 /**
  * One event emitted by [IngestionPipeline.run] as the pipeline moves
- * through the A1→A2→A3 stages for a date range. The static
+ * through the A1→A2 stages for a date range. The static
  * `IngestionService.progress` StateFlow is the public observation
  * surface; the UI's [com.spendai.app.ui.home.HomeViewModel] collects it
  * and the home renders the current event.
@@ -25,16 +25,8 @@ sealed interface IngestionProgress {
     /** The [SmsSource] is feeding rows into the DB. */
     data class LoadingFromSource(val seenSoFar: Int) : IngestionProgress
 
-    /** A new local day is starting in the pipeline. */
-    data class DayStarting(
-        val dayIndex: Int,
-        val totalDays: Int,
-        val messageCount: Int,
-    ) : IngestionProgress
-
     /** Agent 1 finished a message. */
     data class MessageParsed(
-        val dayIndex: Int,
         val messageIndex: Int,
         val totalMessages: Int,
         val kind: String,
@@ -46,28 +38,19 @@ sealed interface IngestionProgress {
      * raw_sms row stays UNPARSED so a future run can retry.
      */
     data class MessageSkipped(
-        val dayIndex: Int,
         val messageIndex: Int,
         val totalMessages: Int,
         val reason: String,
     ) : IngestionProgress
 
-    /** Agent 2 finished a message. */
-    data class MessageResolved(
-        val dayIndex: Int,
+    /**
+     * Agent 2 finished a message. The transaction is now committed
+     * in the local DB; the UI can show "Rs.100 at Acme" inline.
+     */
+    data class MessageCommitted(
         val messageIndex: Int,
         val totalMessages: Int,
-        val a2Confidence: Float,
-    ) : IngestionProgress
-
-    /** Agent 3 is committing the day's resolutions. */
-    data class CommittingDay(val dayIndex: Int, val totalDays: Int) : IngestionProgress
-
-    /** Agent 3 committed the day. */
-    data class DayCommitted(
-        val dayIndex: Int,
-        val totalDays: Int,
-        val commitCount: Int,
+        val transactionId: Long,
     ) : IngestionProgress
 
     /** The whole run finished successfully. Sticky until the next run. */

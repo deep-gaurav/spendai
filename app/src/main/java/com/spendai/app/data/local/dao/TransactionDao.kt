@@ -1,9 +1,11 @@
 package com.spendai.app.data.local.dao
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionStatus
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +14,12 @@ import kotlinx.coroutines.flow.Flow
 interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(row: Transaction): Long
+
+    @Update
+    suspend fun update(row: Transaction)
+
+    @Delete
+    suspend fun delete(row: Transaction)
 
     @Query("SELECT * FROM spend_transaction WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): Transaction?

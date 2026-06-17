@@ -1,12 +1,12 @@
 package com.spendai.app.domain.agent
 
+import android.util.Log
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.RawSmsMessage
 import com.spendai.app.data.repository.ParsedSmsRepository
 import com.spendai.app.inference.GemmaInferenceEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
-import android.util.Log
 import kotlinx.coroutines.withContext
 
 /**
@@ -20,6 +20,9 @@ import kotlinx.coroutines.withContext
  * one corrective retry. If that also fails it returns a
  * `kind=IGNORE` row so the worker can mark the SMS as IGNORED and
  * move on; the underlying raw_sms is preserved for re-running later.
+ *
+ * The returned [A1Outcome] includes the prompt and raw model
+ * response so the pipeline can write them to the audit log.
  */
 class Agent1SmsParser(
     private val engine: GemmaInferenceEngine,
@@ -35,36 +38,27 @@ class Agent1SmsParser(
         }
     }
 
-
     /**
-     * @return the persisted [ParsedSms] row, or null if the engine
-     *   is not READY (in which case the worker should `Result.retry()`).
+     * @return the [A1Outcome] (parsed row + prompt + raw response),
+     *   or null if the engine is not READY (in which case the worker
+     *   should `Result.retry()`).
+     *
+     * @throws Throwable on engine exception (caller routes to
+     *   `skippedByA1++`).
      */
     suspend fun parse(
         rawSms: RawSmsMessage,
-    ): ParsedSms? = withContext(Dispatchers.IO) {
+    ): A1Outcome? = withContext(Dispatchers.IO) {
         if (engine.state.value !is com.spendai.app.inference.InferenceState.Ready) {
             return@withContext null
         }
 
         val systemPrompt = AgentPrompt.A1_SYSTEM_INSTRUCTION
         val userMessage = AgentPrompt.a1UserMessage(rawSms)
-
-        // generatePredictionTracking publishes per-token progress into
-        // InferenceState.Busy so the home card can show "Decoded 87
-        // tokens (agent1.parse) · 23s" instead of a generic
-        // "Working…". first() on the tracking flow gives us the
-        // full joined text (each chunk is appended via emit(chunk)).
-        Log.d(TAG, "A1 input SMS [id=${rawSms.id}, sender=${rawSms.senderAddress}, ts=${rawSms.timestamp}]: ${truncate(rawSms.msgBody)}")
         val fullPrompt = "$systemPrompt\n\n$userMessage"
+
+        Log.d(TAG, "A1 input SMS [id=${rawSms.id}, sender=${rawSms.senderAddress}, ts=${rawSms.timestamp}]: ${truncate(rawSms.msgBody)}")
         Log.d(TAG, "A1 prompt sent to model (${fullPrompt.length} chars): ${truncate(fullPrompt)}")
-        // Direct engine call (no runCatching) so LiteRtLmJniException
-        // propagates to the pipeline. The pipeline's try/catch around
-        // agent1.parse() routes per-message inference failures to
-        // IngestionProgress.MessageSkipped + skippedByA1++, leaving
-        // the raw_sms row UNPARSED for a future run. Swallowing the
-        // throw here used to substitute a synthetic kind=IGNORE
-        // contract and mark the row IGNORED forever.
         val first = engine.generatePredictionTracking(
             prompt = fullPrompt,
             stepLabel = "agent1.parse",
@@ -75,7 +69,7 @@ class Agent1SmsParser(
 
         val contract = firstParsed ?: run {
             // Retry only on a JSON-parse failure. If the engine itself
-            // threw we never reach this point (A2/A3 follow the same rule).
+            // threw we never reach this point (A2 follows the same rule).
             val retry = engine.generatePredictionTracking(
                 prompt = AgentPrompt.A1_CORRECTIVE_PROMPT,
                 stepLabel = "agent1.parse.retry",
@@ -91,6 +85,10 @@ class Agent1SmsParser(
             parsedAt = System.currentTimeMillis(),
         )
         val id = parsedSmsRepository.insert(row)
-        row.copy(id = id)
+        A1Outcome(
+            parsed = row.copy(id = id),
+            prompt = fullPrompt,
+            response = first,
+        )
     }
 }

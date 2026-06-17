@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 class SmsRepository(private val dao: SmsDao) {
 
     suspend fun insert(message: RawSmsMessage): Long = dao.insert(message)
+    suspend fun getById(id: Long): RawSmsMessage? = dao.getById(id)
 
     suspend fun unparsedOnce(): List<RawSmsMessage> =
         dao.getByStatusOnce(SmsStatus.UNPARSED)

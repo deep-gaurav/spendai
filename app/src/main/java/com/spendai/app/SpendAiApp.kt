@@ -13,13 +13,13 @@ import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
 import com.spendai.app.data.repository.PendingReviewRepository
+import com.spendai.app.data.repository.IngestionLogRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionLinkRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.ingestion.IngestionPipeline
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
-import com.spendai.app.domain.agent.Agent3DayCommitter
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.worker.DailyParsingWorker
 import java.util.concurrent.TimeUnit
@@ -27,16 +27,19 @@ import java.util.concurrent.TimeUnit
 /**
  * Application class and manual service locator.
  *
- * Phase 2 adds the three on-device agents (A1/A2/A3) and the new
- * repositories. All long-lived singletons live here; the worker's
- * `doWork()` resolves them off `applicationContext as SpendAiApp`.
+ * Phase 3 trimmed the agent graph to A1 + A2 (per-message resolve
+ * + commit). A3 and its day-batched commit step are gone; every
+ * transaction A1 says TRANSACTION lands directly in
+ * `spend_transaction` as soon as A2 returns. All long-lived
+ * singletons live here; the worker's `doWork()` resolves them off
+ * `applicationContext as SpendAiApp`.
  *
  * ## Why not Hilt
  *
- * Phase 2 has ~10 long-lived singletons. Still under the threshold
- * where a DI framework pays for itself. The shape of the public
- * surface here is the contract; if the class count grows further,
- * swap the body for `@HiltAndroidApp` + `@Module @InstallIn(SingletonComponent::class)`
+ * The class count is still under the threshold where a DI framework
+ * pays for itself. The shape of the public surface here is the
+ * contract; if the class count grows further, swap the body for
+ * `@HiltAndroidApp` + `@Module @InstallIn(SingletonComponent::class)`
  * and the call sites stay unchanged.
  *
  * ## Side effects on cold start
@@ -75,6 +78,9 @@ class SpendAiApp : Application() {
     val pendingReviewRepository: PendingReviewRepository by lazy {
         PendingReviewRepository(database.pendingReviewDao())
     }
+    val ingestionLogRepository: IngestionLogRepository by lazy {
+        IngestionLogRepository(database.ingestionLogDao())
+    }
 
     val gemmaInferenceEngine: GemmaInferenceEngine by lazy { GemmaInferenceEngine() }
 
@@ -84,14 +90,12 @@ class SpendAiApp : Application() {
     val agent2EntityResolver: Agent2EntityResolver by lazy {
         Agent2EntityResolver(
             engine = gemmaInferenceEngine,
+            database = database,
             sourceRepository = financialSourceRepository,
             accountRepository = accountRepository,
             merchantRepository = merchantRepository,
             transactionRepository = transactionRepository,
         )
-    }
-    val agent3DayCommitter: Agent3DayCommitter by lazy {
-        Agent3DayCommitter(gemmaInferenceEngine)
     }
 
     val ingestionPipeline: IngestionPipeline by lazy {
@@ -99,9 +103,9 @@ class SpendAiApp : Application() {
             database = database,
             smsRepository = smsRepository,
             parsedSmsRepository = parsedSmsRepository,
+            ingestionLogRepository = ingestionLogRepository,
             agent1 = agent1SmsParser,
             agent2 = agent2EntityResolver,
-            agent3 = agent3DayCommitter,
         )
     }
 

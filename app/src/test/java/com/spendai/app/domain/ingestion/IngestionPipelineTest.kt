@@ -10,34 +10,30 @@ import com.spendai.app.data.local.entity.SmsStatus
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.IngestionLogRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
-import com.spendai.app.data.repository.PendingReviewRepository
 import com.spendai.app.data.repository.SmsRepository
-import com.spendai.app.data.repository.TransactionLinkRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
-import com.spendai.app.domain.agent.Agent3DayCommitter
 import com.spendai.app.domain.ingestion.sources.ListSmsSource
 import com.spendai.app.inference.GemmaInferenceEngine
+import com.spendai.app.inference.InferenceState
+import com.spendai.app.TestApp
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import com.spendai.app.TestApp
 
 /**
  * Locks down the [IngestionPipeline] behaviour end-to-end with a
@@ -46,6 +42,10 @@ import com.spendai.app.TestApp
  * the foreground service and the worker call into, exercised
  * without Android UI, without foreground notifications, and
  * without spending a minute on a real LLM.
+ *
+ * Phase 3 trimmed the agent graph: A1 parses per message and A2
+ * resolves entities AND commits the `spend_transaction` row in a
+ * single call. The day-batched A3 commit step is gone.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = TestApp::class, sdk = [33])
@@ -55,8 +55,6 @@ class IngestionPipelineTest {
     private lateinit var pipeline: IngestionPipeline
     private lateinit var smsRepo: SmsRepository
     private lateinit var txnRepo: TransactionRepository
-    private lateinit var linkRepo: TransactionLinkRepository
-    private lateinit var reviewRepo: PendingReviewRepository
     private val engine: GemmaInferenceEngine = mockk(relaxed = true)
 
     @Before
@@ -71,21 +69,24 @@ class IngestionPipelineTest {
         val accountRepo = AccountRepository(db.accountDao())
         val merchantRepo = MerchantRepository(db.merchantDao())
         txnRepo = TransactionRepository(db.transactionDao())
-        linkRepo = TransactionLinkRepository(db.transactionLinkDao())
-        reviewRepo = PendingReviewRepository(db.pendingReviewDao())
-        coEvery { engine.state } returns MutableStateFlow(
-            com.spendai.app.inference.InferenceState.Ready("NPU")
-        )
+        val ingestionLogRepo = IngestionLogRepository(db.ingestionLogDao())
+        coEvery { engine.state } returns MutableStateFlow(InferenceState.Ready("NPU"))
         val a1 = Agent1SmsParser(engine, parsedRepo)
-        val a2 = Agent2EntityResolver(engine, sourceRepo, accountRepo, merchantRepo, txnRepo)
-        val a3 = Agent3DayCommitter(engine)
+        val a2 = Agent2EntityResolver(
+            engine = engine,
+            database = db,
+            sourceRepository = sourceRepo,
+            accountRepository = accountRepo,
+            merchantRepository = merchantRepo,
+            transactionRepository = txnRepo,
+        )
         pipeline = IngestionPipeline(
             database = db,
             smsRepository = smsRepo,
             parsedSmsRepository = parsedRepo,
+            ingestionLogRepository = ingestionLogRepo,
             agent1 = a1,
             agent2 = a2,
-            agent3 = a3,
         )
     }
 
@@ -96,40 +97,28 @@ class IngestionPipelineTest {
 
     /** Wire the engine to return IGNORE for every input. */
     private fun stubAllIgnore() {
-        coEvery { engine.generatePredictionTracking(any<String>(), any<String>()) } returns
+        coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf("""{"kind":"IGNORE","confidence":1.0}""")
         coEvery { engine.generatePrediction(any<String>()) } returns """{"kind":"IGNORE","confidence":1.0}"""
-        coEvery { engine.probe(any<String>()) } returns """{"commits":[]}"""
     }
 
     /**
      * Wire the engine so:
-     *  - A1 calls (even index 0,2,4,...) return a TRANSACTION
-     *  - A2 calls (odd index 1,3,5,...) return all-new source/account/merchant
-     *  - A3 (probe) returns a single commit for any parsedSmsId
-     *
-     * The pipeline calls A1, A2, A1, A2, ... in sequence per message,
-     * so we alternate.
+     *  - A1 calls return a TRANSACTION
+     *  - A2 calls return all-new source/account/merchant
      */
-    private fun stubHappyPath(dayBucket: String) {
+    private fun stubHappyPath() {
         val a1Resp = """{"kind":"TRANSACTION","amountPaise":10000,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
-        val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedBankName":null,"suggestedInstrumentType":"UNKNOWN","suggestedDisplayName":null,"confidence":0.9},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Test Bank","maskedNumber":"XXXX1234","currency":"INR","confidence":0.9},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.9},"possibleLink":null,"a2Confidence":0.9}"""
-        var callIndex = 0
-        coEvery { engine.generatePredictionTracking(any<String>(), any<String>()) } answers {
-            val n = callIndex++
-            kotlinx.coroutines.flow.flowOf(if (n % 2 == 0) a1Resp else a2Resp)
-        }
-        coEvery { engine.generatePrediction(any<String>()) } answers {
-            val n = callIndex++
-            if (n % 2 == 0) a1Resp else a2Resp
-        }
-        coEvery { engine.probe(any<String>()) } answers {
-            val prompt = firstArg<String>()
-            val parsedSmsIdPattern = """parsedSmsId":\s*(\d+)""".toRegex()
-            val match = parsedSmsIdPattern.find(prompt)
-            val id = match?.groupValues?.get(1)?.toLong() ?: 1L
-            """{"commits":[{"parsedSmsId":$id,"finalTransaction":{"accountId":1,"merchantId":1,"rawSmsId":$id,"parsedSmsId":$id,"amountPaise":10000,"currency":"INR","direction":"DEBIT","txnAtMillis":1,"channel":"UPI","referenceNo":null,"status":"CONFIRMED","notes":null},"confidence":0.9,"linksToCreate":[],"needsReview":false}]}"""
-        }
+        val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedBankName":null,"suggestedInstrumentType":"UNKNOWN","suggestedDisplayName":null,"confidence":0.9},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Test Bank","maskedNumber":"XXXX1234","currency":"INR","confidence":0.9},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.9},"a2Confidence":0.9}"""
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a1Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a1Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePrediction(any<String>()) } returns a1Resp
     }
 
     private fun rawMsg(sender: String, body: String, ts: Long, id: Long = 0L) = RawSmsMessage(
@@ -189,7 +178,7 @@ class IngestionPipelineTest {
 
     @Test
     fun `happy path produces committed transactions and emits progress events`() = runTest {
-        stubHappyPath("today")
+        stubHappyPath()
         val (events, emit) = collectProgress()
         val now = System.currentTimeMillis()
         val source = ListSmsSource(listOf(
@@ -209,38 +198,31 @@ class IngestionPipelineTest {
         val txns = txnRepo.getSince(0L)
         assertEquals(1, txns.size)
         assertEquals(TransactionStatus.CONFIRMED.name, txns[0].status)
-        // Progress events: at least one MessageParsed + one MessageResolved + one CommittingDay + one DayCommitted + Done
+        // Progress events: at least one MessageParsed + one MessageCommitted + Done
         assertTrue(events.any { it is IngestionProgress.MessageParsed })
-        assertTrue(events.any { it is IngestionProgress.MessageResolved })
-        assertTrue(events.any { it is IngestionProgress.CommittingDay })
-        assertTrue(events.any { it is IngestionProgress.DayCommitted })
+        assertTrue(events.any { it is IngestionProgress.MessageCommitted })
         assertTrue(events.last() is IngestionProgress.Done)
     }
 
     @Test
-    fun `multi-day range groups by local day and commits per day`() = runTest {
-        stubHappyPath("today")
-        val (events, emit) = collectProgress()
+    fun `multi-message run processes in timestamp order and commits all`() = runTest {
+        stubHappyPath()
         val now = System.currentTimeMillis()
-        val oneDay = 24L * 3_600_000L
-        // 3 messages on 3 different days
         val source = ListSmsSource(listOf(
-            rawMsg("VK-TEST", "day1", now - oneDay * 2, id = 1L),
-            rawMsg("VK-TEST", "day2", now - oneDay * 1, id = 2L),
-            rawMsg("VK-TEST", "day3", now - oneDay * 0, id = 3L),
+            rawMsg("VK-TEST", "day1", now - 2_000L, id = 1L),
+            rawMsg("VK-TEST", "day2", now - 1_000L, id = 2L),
+            rawMsg("VK-TEST", "day3", now, id = 3L),
         ))
         val outcome = pipeline.run(
             source = source,
-            range = DateRange(0L, now + oneDay),
-            emit = { emit(it) },
+            range = DateRange(0L, now + 60_000L),
+            emit = { },
         )
         assertTrue(outcome is IngestionOutcome.Success)
         val summary = (outcome as IngestionOutcome.Success).summary
         assertEquals(3, summary.totalMessages)
         assertEquals(3, summary.parsed)
-        // 3 CommittingDay events
-        val commits = events.filterIsInstance<IngestionProgress.CommittingDay>()
-        assertEquals(3, commits.size)
+        assertEquals(3, summary.committedTransactions)
         assertEquals(3, txnRepo.getSince(0L).size)
     }
 
@@ -251,22 +233,17 @@ class IngestionPipelineTest {
         // MessageSkipped event, increment skippedByA2, and move on
         // to the next message.
         val a1Resp = """{"kind":"TRANSACTION","amountPaise":10000,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
-        // A1 must always succeed (the new Agent1SmsParser propagates
-        // engine exceptions instead of swallowing them, so a throw on
-        // the A1 call would surface as skippedByA1). A2 throws on
-        // every call to simulate malformed JSON.
-        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse")) } returns
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse"), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(a1Resp)
-        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry")) } returns
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry"), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(a1Resp)
-        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve")) } answers {
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve"), anyNullable<Int>()) } answers {
             throw IllegalStateException("Malformed JSON: unexpected EOF")
         }
-        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry")) } answers {
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry"), anyNullable<Int>()) } answers {
             throw IllegalStateException("Malformed JSON: unexpected EOF")
         }
         coEvery { engine.generatePrediction(any<String>()) } returns a1Resp
-        // A3 isn't called because nothing materialises.
 
         val (events, emit) = collectProgress()
         val now = System.currentTimeMillis()
@@ -292,32 +269,28 @@ class IngestionPipelineTest {
         // Two skip events were emitted.
         val skips = events.filterIsInstance<IngestionProgress.MessageSkipped>()
         assertEquals(2, skips.size)
-        assertTrue(
-            "expected 'no parseable JSON' in reason, got: ${skips[0].reason}",
-            skips[0].reason.contains("no parseable JSON"),
-        )
         // Raw SMS rows are still UNPARSED so a future run can retry.
         val open = smsRepo.unparsedOnce()
         assertEquals(2, open.size)
     }
 
     @Test
-    fun `low-confidence commit lands in pending_review not transactions`() = runTest {
-        // A1 = TRANSACTION, A2 = low confidence, A3 = needsReview=true
+    fun `low-confidence commit still lands as a transaction`() = runTest {
+        // A1 = TRANSACTION, A2 returns low a2Confidence. Phase 3
+        // removed the review queue; A2 still commits the row, just
+        // with a low confidence value for the edit UI to display.
         val a1Resp = """{"kind":"TRANSACTION","amountPaise":500,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
-        val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedBankName":null,"suggestedInstrumentType":"UNKNOWN","suggestedDisplayName":null,"confidence":0.4},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Test","maskedNumber":"XXXX1","currency":"INR","confidence":0.4},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.4},"possibleLink":null,"a2Confidence":0.4}"""
-        var callIndex = 0
-        coEvery { engine.generatePredictionTracking(any<String>(), any<String>()) } answers {
-            val n = callIndex++
-            kotlinx.coroutines.flow.flowOf(if (n % 2 == 0) a1Resp else a2Resp)
-        }
-        coEvery { engine.generatePrediction(any<String>()) } answers {
-            val n = callIndex++
-            if (n % 2 == 0) a1Resp else a2Resp
-        }
-        coEvery { engine.probe(any<String>()) } returns """{"commits":[{"parsedSmsId":1,"finalTransaction":{"accountId":1,"merchantId":1,"rawSmsId":1,"parsedSmsId":1,"amountPaise":500,"currency":"INR","direction":"DEBIT","txnAtMillis":1,"channel":"UPI","referenceNo":null,"status":"NEEDS_REVIEW","notes":null},"confidence":0.4,"linksToCreate":[],"needsReview":true}]}"""
+        val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedBankName":null,"suggestedInstrumentType":"UNKNOWN","suggestedDisplayName":null,"confidence":0.4},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Test","maskedNumber":"XXXX1","currency":"INR","confidence":0.4},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.4},"a2Confidence":0.4}"""
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a1Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a1Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePrediction(any<String>()) } returns a1Resp
 
-        val (events, emit) = collectProgress()
         val now = System.currentTimeMillis()
         val source = ListSmsSource(listOf(
             rawMsg("VK-TEST", "Rs 5 at Acme", now - 1000L, id = 1L),
@@ -325,18 +298,17 @@ class IngestionPipelineTest {
         val outcome = pipeline.run(
             source = source,
             range = DateRange(0L, Long.MAX_VALUE),
-            emit = { emit(it) },
+            emit = { },
         )
         assertTrue(outcome is IngestionOutcome.Success)
         val summary = (outcome as IngestionOutcome.Success).summary
-        assertEquals(1, summary.needsReview)
-        // Transaction is in the DB with NEEDS_REVIEW status
+        // No more needsReview; everything is committed.
+        assertEquals(1, summary.committedTransactions)
+        // Transaction is in the DB with CONFIRMED status (low
+        // confidence is preserved on the row for the edit UI).
         val txns = txnRepo.getSince(0L)
         assertEquals(1, txns.size)
-        assertEquals(TransactionStatus.NEEDS_REVIEW.name, txns[0].status)
-        // And a pending_review row
-        val open = reviewRepo.getOpenOnce()
-        assertEquals(1, open.size)
-        assertEquals(1L, open[0].targetId)
+        assertEquals(TransactionStatus.CONFIRMED.name, txns[0].status)
+        assertEquals(0.4f, txns[0].confidence, 0.0001f)
     }
 }

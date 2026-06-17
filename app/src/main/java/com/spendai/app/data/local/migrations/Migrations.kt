@@ -235,3 +235,58 @@ val MIGRATION_1_2: Migration = object : Migration(1, 2) {
         )
     }
 }
+
+/**
+ * v2 → v3: adds the [com.spendai.app.data.local.entity.IngestionLog]
+ * audit table. Purely additive — every existing row is preserved,
+ * the only new artefact is the `ingestion_log` table and its three
+ * supporting indices.
+ */
+val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ingestion_log` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`rawSmsId` INTEGER NOT NULL, " +
+                "`parsedSmsId` INTEGER, " +
+                "`transactionId` INTEGER, " +
+                "`ingestedAt` INTEGER NOT NULL, " +
+                "`a1Outcome` TEXT NOT NULL, " +
+                "`a1Confidence` REAL, " +
+                "`a1Prompt` TEXT, " +
+                "`a1Response` TEXT, " +
+                "`a1Error` TEXT, " +
+                "`a2Outcome` TEXT, " +
+                "`a2Confidence` REAL, " +
+                "`a2Prompt` TEXT, " +
+                "`a2Response` TEXT, " +
+                "`a2Error` TEXT, " +
+                "FOREIGN KEY(`rawSmsId`) REFERENCES `raw_sms`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                "FOREIGN KEY(`parsedSmsId`) REFERENCES `parsed_sms`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE SET NULL, " +
+                "FOREIGN KEY(`transactionId`) REFERENCES `spend_transaction`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE SET NULL)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_ingestion_log_rawSmsId` " +
+                "ON `ingestion_log` (`rawSmsId`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_ingestion_log_parsedSmsId` " +
+                "ON `ingestion_log` (`parsedSmsId`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_ingestion_log_transactionId` " +
+                "ON `ingestion_log` (`transactionId`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_ingestion_log_ingestedAt` " +
+                "ON `ingestion_log` (`ingestedAt`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_ingestion_log_a2Outcome` " +
+                "ON `ingestion_log` (`a2Outcome`)"
+        )
+    }
+}

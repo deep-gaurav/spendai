@@ -122,41 +122,30 @@ class SmsCorpusTest {
             val canned = expectedA1Json(entry, wrapInFence = (idx % 3 == 0))
             coEvery { engine.state } returns MutableStateFlow(com.spendai.app.inference.InferenceState.Ready("NPU"))
         coEvery { engine.generatePrediction(any()) } returns canned
-        coEvery { engine.generatePredictionTracking(any<String>(), any<String>()) } returns
+        coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(canned)
 
             val parsed = parser.parse(raw)
             assertNotNull("parser returned null for ${entry.id}", parsed)
-            assertEquals(entry.expectedKind, parsed!!.kind)
+            assertEquals(entry.expectedKind, parsed!!.parsed.kind)
             if (entry.expectedKind == "TRANSACTION") {
-                assertEquals(entry.expectedAmountPaise, parsed.amountPaise)
-                assertEquals(entry.expectedDirection, parsed.direction)
-                assertEquals(entry.expectedChannel, parsed.channel)
-                assertEquals(entry.expectedMerchantRaw, parsed.merchantRaw)
+                assertEquals(entry.expectedAmountPaise, parsed.parsed.amountPaise)
+                assertEquals(entry.expectedDirection, parsed.parsed.direction)
+                assertEquals(entry.expectedChannel, parsed.parsed.channel)
+                assertEquals(entry.expectedMerchantRaw, parsed.parsed.merchantRaw)
                 if (entry.expectedNormalizedMerchant != null) {
                     assertEquals(
                         entry.expectedNormalizedMerchant,
-                        MerchantNormalizer.normalize(parsed.merchantRaw),
+                        MerchantNormalizer.normalize(parsed.parsed.merchantRaw),
                     )
                 }
             } else {
-                assertEquals(ParsedSmsKind.IGNORE.name, parsed.kind)
-                assertNull(parsed.amountPaise)
+                assertEquals(ParsedSmsKind.IGNORE.name, parsed.parsed.kind)
+                assertNull(parsed.parsed.amountPaise)
             }
         }
     }
 
-    @Test
-    fun `corpus includes self-transfer pair`() {
-        val corpus = loadCorpus()
-        val debit = corpus.entries.find { it.id == "self-transfer-debit" }
-        val credit = corpus.entries.find { it.id == "self-transfer-credit" }
-        assertNotNull("self-transfer-debit must be in corpus", debit)
-        assertNotNull("self-transfer-credit must be in corpus", credit)
-        assertEquals(debit!!.expectedAmountPaise, credit!!.expectedAmountPaise)
-        assertEquals("DEBIT", debit.expectedDirection)
-        assertEquals("CREDIT", credit.expectedDirection)
-    }
 
     @Test
     fun `corpus includes ignore cases`() {

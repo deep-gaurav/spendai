@@ -86,7 +86,7 @@ class Migration1To2Test {
 
         // 2. Open with Room + migration. Room runs MIGRATION_1_2.
         Room.databaseBuilder(ctx, AppDatabase::class.java, dbName)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
             .build()
             .also { db ->
             try {                // raw_sms row preserved + parsedSmsId defaults to null
@@ -128,7 +128,7 @@ class Migration1To2Test {
         ).writableDatabase.close()
 
         Room.databaseBuilder(ctx, AppDatabase::class.java, dbName)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
             .build()
             .also { db ->
             try {                val expected = listOf(
@@ -172,7 +172,7 @@ class Migration1To2Test {
             )
         }
         Room.databaseBuilder(ctx, AppDatabase::class.java, dbName)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
             .build()
             .also { db ->
             try {                val smsRow = db.smsDao().getByStatusOnce(SmsStatus.UNPARSED).first()

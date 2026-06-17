@@ -29,4 +29,16 @@ interface MerchantDao {
 
     @Query("SELECT * FROM merchant ORDER BY firstSeenAt DESC")
     fun observeAll(): Flow<List<Merchant>>
+
+    /**
+     * Most-recently-seen merchants, capped to [limit] rows.
+     *
+     * A2's prompt bundle ships a small slice of the merchant list
+     * (default 100) to keep the input well under the 64K context
+     * budget. New senders land in this window first because the
+     * pipeline commits them right after they are first seen, and
+     * the resolver re-reads the bundle on every per-message call.
+     */
+    @Query("SELECT * FROM merchant ORDER BY firstSeenAt DESC LIMIT :limit")
+    suspend fun getRecent(limit: Int): List<Merchant>
 }

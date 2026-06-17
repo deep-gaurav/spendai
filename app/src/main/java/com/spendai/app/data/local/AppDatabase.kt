@@ -8,6 +8,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import com.spendai.app.data.local.dao.AccountDao
 import com.spendai.app.data.local.dao.FinancialSourceDao
+import com.spendai.app.data.local.dao.IngestionLogDao
 import com.spendai.app.data.local.dao.MerchantDao
 import com.spendai.app.data.local.dao.ParsedSmsDao
 import com.spendai.app.data.local.dao.PendingReviewDao
@@ -16,6 +17,7 @@ import com.spendai.app.data.local.dao.TransactionDao
 import com.spendai.app.data.local.dao.TransactionLinkDao
 import com.spendai.app.data.local.entity.Account
 import com.spendai.app.data.local.entity.FinancialSource
+import com.spendai.app.data.local.entity.IngestionLog
 import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.PendingReview
@@ -23,6 +25,7 @@ import com.spendai.app.data.local.entity.RawSmsMessage
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionLink
 import com.spendai.app.data.local.migrations.MIGRATION_1_2
+import com.spendai.app.data.local.migrations.MIGRATION_2_3
 
 /**
  * The single Room database for SpendAI.
@@ -49,8 +52,9 @@ import com.spendai.app.data.local.migrations.MIGRATION_1_2
         Transaction::class,
         TransactionLink::class,
         PendingReview::class,
+        IngestionLog::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -64,12 +68,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun transactionLinkDao(): TransactionLinkDao
     abstract fun pendingReviewDao(): PendingReviewDao
+    abstract fun ingestionLogDao(): IngestionLogDao
 
     companion object {
         private const val DB_NAME = "spendai.db"
 
         /** All known migrations in order. Add MIGRATION_2_3, ... as needed. */
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2)
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 
         @Volatile
         private var instance: AppDatabase? = null

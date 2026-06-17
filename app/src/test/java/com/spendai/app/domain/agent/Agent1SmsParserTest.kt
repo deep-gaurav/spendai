@@ -52,7 +52,7 @@ class Agent1SmsParserTest {
         val repo = mockk<ParsedSmsRepository>(relaxed = true)
         every { engine.state } returns MutableStateFlow(InferenceState.Ready("GPU"))
         coEvery {
-            engine.generatePredictionTracking(any<String>(), any<String>())
+            engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>())
         } returns flow { throw LiteRtLmJniException("simulated GPU failure") }
 
         val parser = Agent1SmsParser(engine, repo)
@@ -76,7 +76,7 @@ class Agent1SmsParserTest {
         every { engine.state } returns MutableStateFlow(InferenceState.Ready("GPU"))
         val callIndex = intArrayOf(0)
         coEvery {
-            engine.generatePredictionTracking(any<String>(), any<String>())
+            engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>())
         } answers {
             when (callIndex[0]++) {
                 0 -> flowOf("not-json-at-all")
@@ -103,7 +103,7 @@ class Agent1SmsParserTest {
         every { engine.state } returns MutableStateFlow(InferenceState.Ready("GPU"))
         val json = """{"kind":"TRANSACTION","amountPaise":10000,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
         coEvery {
-            engine.generatePredictionTracking(any<String>(), any<String>())
+            engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>())
         } returns flowOf(json)
         val inserted = mutableListOf<com.spendai.app.data.local.entity.ParsedSms>()
         coEvery { repo.insert(any()) } answers {
@@ -115,9 +115,9 @@ class Agent1SmsParserTest {
         val parser = Agent1SmsParser(engine, repo)
         val parsed = parser.parse(rawSms)
         assertNotNull("parser returned null", parsed)
-        assertEquals("TRANSACTION", parsed!!.kind)
-        assertEquals(10000L, parsed.amountPaise)
-        assertEquals(0.95f, parsed.a1Confidence)
+        assertEquals("TRANSACTION", parsed!!.parsed.kind)
+        assertEquals(10000L, parsed!!.parsed.amountPaise)
+        assertEquals(0.95f, parsed!!.parsed.a1Confidence)
         // The rawJson stored on the row is the model's verbatim output,
         // NOT empty. This is the marker the pipeline uses to distinguish
         // a real IGNORE from a synthetic one.
@@ -130,14 +130,14 @@ class Agent1SmsParserTest {
         val repo = mockk<ParsedSmsRepository>(relaxed = true)
         every { engine.state } returns MutableStateFlow(InferenceState.Ready("GPU"))
         coEvery {
-            engine.generatePredictionTracking(any<String>(), any<String>())
+            engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>())
         } returns flowOf("not-valid-json")
 
         val parser = Agent1SmsParser(engine, repo)
         val parsed = parser.parse(rawSms)
         assertNotNull("parser returned null", parsed)
-        assertEquals("IGNORE", parsed!!.kind)
-        assertEquals(0.0f, parsed.a1Confidence)
+        assertEquals("IGNORE", parsed!!.parsed.kind)
+        assertEquals(0.0f, parsed!!.parsed.a1Confidence)
         // This is the synthetic-IGNORE signature the pipeline now
         // detects and re-runs. A real model IGNORE has non-empty
         // a1RawJson; this one is empty.
@@ -152,6 +152,6 @@ class Agent1SmsParserTest {
         val parser = Agent1SmsParser(engine, repo)
         val result = parser.parse(rawSms)
         assertEquals(null, result)
-        coVerify(exactly = 0) { engine.generatePredictionTracking(any<String>(), any<String>()) }
+        coVerify(exactly = 0) { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable<Int>()) }
     }
 }
