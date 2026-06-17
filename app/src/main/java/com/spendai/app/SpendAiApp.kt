@@ -8,8 +8,18 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.spendai.app.data.local.AppDatabase
+import com.spendai.app.data.repository.AccountRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
+import com.spendai.app.data.repository.MerchantRepository
+import com.spendai.app.data.repository.ParsedSmsRepository
+import com.spendai.app.data.repository.PendingReviewRepository
 import com.spendai.app.data.repository.SmsRepository
+import com.spendai.app.data.repository.TransactionLinkRepository
+import com.spendai.app.data.repository.TransactionRepository
+import com.spendai.app.domain.ingestion.IngestionPipeline
+import com.spendai.app.domain.agent.Agent1SmsParser
+import com.spendai.app.domain.agent.Agent2EntityResolver
+import com.spendai.app.domain.agent.Agent3DayCommitter
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.worker.DailyParsingWorker
 import java.util.concurrent.TimeUnit
@@ -17,13 +27,16 @@ import java.util.concurrent.TimeUnit
 /**
  * Application class and manual service locator.
  *
+ * Phase 2 adds the three on-device agents (A1/A2/A3) and the new
+ * repositories. All long-lived singletons live here; the worker's
+ * `doWork()` resolves them off `applicationContext as SpendAiApp`.
+ *
  * ## Why not Hilt
  *
- * Phase 1 has ~5 long-lived singletons. Wiring them up with a DI
- * framework would be more code (and more build time) than just
- * exposing them as `val`s. The shape of the public surface here is
- * the contract; if the class count grows, swap the body for
- * `@HiltAndroidApp` + `@Module @InstallIn(SingletonComponent::class)`
+ * Phase 2 has ~10 long-lived singletons. Still under the threshold
+ * where a DI framework pays for itself. The shape of the public
+ * surface here is the contract; if the class count grows further,
+ * swap the body for `@HiltAndroidApp` + `@Module @InstallIn(SingletonComponent::class)`
  * and the call sites stay unchanged.
  *
  * ## Side effects on cold start
@@ -44,8 +57,53 @@ class SpendAiApp : Application() {
     val financialSourceRepository: FinancialSourceRepository by lazy {
         FinancialSourceRepository(database.financialSourceDao())
     }
+    val parsedSmsRepository: ParsedSmsRepository by lazy {
+        ParsedSmsRepository(database.parsedSmsDao())
+    }
+    val accountRepository: AccountRepository by lazy {
+        AccountRepository(database.accountDao())
+    }
+    val merchantRepository: MerchantRepository by lazy {
+        MerchantRepository(database.merchantDao())
+    }
+    val transactionRepository: TransactionRepository by lazy {
+        TransactionRepository(database.transactionDao())
+    }
+    val transactionLinkRepository: TransactionLinkRepository by lazy {
+        TransactionLinkRepository(database.transactionLinkDao())
+    }
+    val pendingReviewRepository: PendingReviewRepository by lazy {
+        PendingReviewRepository(database.pendingReviewDao())
+    }
 
     val gemmaInferenceEngine: GemmaInferenceEngine by lazy { GemmaInferenceEngine() }
+
+    val agent1SmsParser: Agent1SmsParser by lazy {
+        Agent1SmsParser(gemmaInferenceEngine, parsedSmsRepository)
+    }
+    val agent2EntityResolver: Agent2EntityResolver by lazy {
+        Agent2EntityResolver(
+            engine = gemmaInferenceEngine,
+            sourceRepository = financialSourceRepository,
+            accountRepository = accountRepository,
+            merchantRepository = merchantRepository,
+            transactionRepository = transactionRepository,
+        )
+    }
+    val agent3DayCommitter: Agent3DayCommitter by lazy {
+        Agent3DayCommitter(gemmaInferenceEngine)
+    }
+
+    val ingestionPipeline: IngestionPipeline by lazy {
+        IngestionPipeline(
+            database = database,
+            smsRepository = smsRepository,
+            parsedSmsRepository = parsedSmsRepository,
+            agent1 = agent1SmsParser,
+            agent2 = agent2EntityResolver,
+            agent3 = agent3DayCommitter,
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -54,10 +112,6 @@ class SpendAiApp : Application() {
     }
 
     private fun scheduleDailyParsing() {
-        // The daily worker needs no network and no charging. It is
-        // expected to be cheap: pull UNPARSED rows, run inference,
-        // update statuses. If the LLM is uninitialised at this point
-        // the worker skips gracefully (TODO seam in Phase 2).
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
             .setRequiresBatteryNotLow(true)

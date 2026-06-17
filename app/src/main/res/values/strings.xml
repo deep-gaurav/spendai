@@ -60,4 +60,64 @@
     <string name="home_title">SpendAI</string>
     <string name="home_subtitle">You\'re all set. The main app ships in the next release.</string>
     <string name="home_overflow_rerun">Re-run setup</string>
+    <!-- Home screen (Phase 2.5) -->
+    <string name="home_ingest_title">Ingest SMS</string>
+    <string name="home_ingest_subtitle">Process a day, week, or month of bank SMS on-device.</string>
+    <string name="home_ingest_cta">Pick a range</string>
+    <string name="home_ingest_running">Running…</string>
+    <string name="home_ingest_idle">No ingestion yet</string>
+    <string name="home_ingest_needs_sms">Grant SMS access to ingest your messages.</string>
+    <string name="home_callout_source_count">%1$d new sender%2$s to label</string>
+    <string name="home_callout_txn_count">%1$d uncertain transaction%2$s to review</string>
+    <string name="home_callout_review_cta">Review now</string>
+    <string name="home_recent_title">Recent activity</string>
+    <string name="home_recent_empty">No transactions yet. Ingest some SMS to get started.</string>
+    <string name="home_recent_see_all">See all</string>
+    <string name="home_ingest_done">Ingestion finished</string>
+
+    <!-- Ingest range sheet -->
+    <string name="ingest_sheet_title">Ingest SMS</string>
+    <string name="ingest_sheet_subtitle">Pick how far back to read. Each local day is processed in order.</string>
+    <string name="ingest_sheet_needs_sms_title">SMS access required</string>
+    <string name="ingest_sheet_needs_sms_body">SpendAI needs READ_SMS to read your bank messages from the device. Nothing leaves the phone.</string>
+    <string name="ingest_sheet_grant">Grant access</string>
+    <string name="ingest_range_yesterday">Yesterday</string>
+    <string name="ingest_range_yesterday_sub">The last calendar day, ending at midnight today.</string>
+    <string name="ingest_range_week">Last 7 days</string>
+    <string name="ingest_range_week_sub">A week of SMS, ending at midnight today.</string>
+    <string name="ingest_range_month">Last 30 days</string>
+    <string name="ingest_range_month_sub">A month of SMS, ending at midnight today.</string>
+    <string name="ingest_progress_label">Day %1$d of %2$d</string>
+    <string name="ingest_progress_committing">Day %1$d of %2$d — committing</string>
+    <string name="ingest_progress_done">Done — %1$d committed, %2$d to review</string>
+    <string name="ingest_progress_failed">Ingestion failed: %1$s</string>
+    <string name="ingest_progress_cancelled">Ingestion cancelled</string>
+
+    <!-- Transactions screen -->
+    <string name="transactions_title">Transactions</string>
+    <string name="transactions_empty">No transactions yet.</string>
+    <string name="transactions_loading">Loading…</string>
+    <string name="transactions_amount_format">%1$s%2$s %3$s</string>
+
+    <!-- Insights screen -->
+    <string name="insights_title">Insights</string>
+    <string name="insights_subtitle">Spending trends, category breakdowns, and monthly summaries ship in the next release.</string>
+
+    <!-- Review screen -->
+    <string name="review_title">Review</string>
+    <string name="review_empty">Nothing to review. Everything looks good.</string>
+    <string name="review_source_label">New sender</string>
+    <string name="review_source_key_label">Sender ID</string>
+    <string name="review_source_bank_label">Bank name</string>
+    <string name="review_source_display_label">Display name</string>
+    <string name="review_source_instrument_label">Instrument type</string>
+    <string name="review_accept">Accept</string>
+    <string name="review_reject">Reject</string>
+    <string name="review_save">Save &amp; confirm</string>
+    <string name="review_confidence_label">Model confidence: %1$s</string>
+
+    <!-- Bottom nav -->
+    <string name="nav_home">Home</string>
+    <string name="nav_transactions">Transactions</string>
+    <string name="nav_insights">Insights</string>
 </resources>

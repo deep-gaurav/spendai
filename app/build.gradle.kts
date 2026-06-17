@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
 
@@ -18,8 +19,8 @@ android {
         // and required by current WorkManager constraints.
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 6
+        versionName = "0.5.0-32k-context"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Expose the .litertlm model filename so instrumentation tests
@@ -118,11 +119,21 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
 
     // AI / Inference — LiteRT-LM is the official on-device LLM runtime.
     // Provides Engine, EngineConfig, Conversation, Message, Backend, etc.
     // The artifact transitively includes the LiteRT (.tflite) runtime.
     implementation(libs.litertlm.android)
+
+    // Play Services TFLite. The GPU variant gives LiteRT-LM a Google-maintained
+    // OpenCL/Vulkan dispatch shim that loads dynamically on devices with
+    // Play Services — this is the path Google AI Edge Gallery uses for its
+    // GPU backend. Without it, LiteRT-LM falls back to the bundled shim
+    // which silently fails on Mali GPUs (clEnqueueNDRangeKernel errors).
+    implementation(libs.play.services.tflite.java)
+    implementation(libs.play.services.tflite.gpu)
+    implementation(libs.play.services.tflite.support)
 
     // Network — OkHttp for the in-app model downloader.
     implementation(libs.okhttp)

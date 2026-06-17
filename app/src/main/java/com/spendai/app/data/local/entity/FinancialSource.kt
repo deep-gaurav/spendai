@@ -15,11 +15,17 @@ import androidx.room.PrimaryKey
  * inspect what's stored.
  *
  * `deducedType` is the LLM's best guess at the source's role
- * (CREDIT_CARD, UPI, NEFT, WALLET, …). It is intentionally a plain String
+ * (CREDIT_CARD, UPI, NEFT, WALLET, ...). It is intentionally a plain String
  * rather than a Room enum so we can add new types without a migration.
  *
- * `userLabel` is set when the user explicitly renames a source in the UI
- * (Phase 2). Null until then.
+ * `instrumentType` is the structured counterpart to `deducedType` and is
+ * one of [SourceInstrumentType] (stored as a string column). A new source
+ * defaults to `UNKNOWN` until the user labels it or A3 promotes it from
+ * the review queue.
+ *
+ * `status` is [SourceStatus]. New sources land in `NEEDS_REVIEW` so the
+ * home screen can show a "label this source" card; once the user
+ * confirms it flips to `CONFIRMED` and stays there.
  */
 @Entity(
     tableName = "financial_source",
@@ -35,9 +41,50 @@ data class FinancialSource(
     @ColumnInfo(name = "deducedType")
     val deducedType: String,
 
+    /**
+     * Human-readable label set by the user (e.g. "HDFC Credit Card"). Null
+     * until the user renames it in the UI, or until A3 promotes the source
+     * with a confident guess.
+     */
     @ColumnInfo(name = "userLabel")
     val userLabel: String? = null,
 
     @ColumnInfo(name = "firstSeenTimestamp")
-    val firstSeenTimestamp: Long
+    val firstSeenTimestamp: Long,
+
+    @ColumnInfo(name = "displayName")
+    val displayName: String? = null,
+
+    @ColumnInfo(name = "bankName")
+    val bankName: String? = null,
+
+    @ColumnInfo(name = "accountLast4")
+    val accountLast4: String? = null,
+
+    @ColumnInfo(name = "instrumentType")
+    val instrumentType: String = SourceInstrumentType.UNKNOWN.name,
+
+    @ColumnInfo(name = "status", defaultValue = "'NEEDS_REVIEW'")
+    val status: String = SourceStatus.NEEDS_REVIEW.name,
+
+    @ColumnInfo(name = "confirmedAt")
+    val confirmedAt: Long? = null,
 )
+
+/** Coarse role of a [FinancialSource]. Stored as a string column. */
+enum class SourceInstrumentType {
+    UNKNOWN,
+    CARD,
+    ACCOUNT,
+    WALLET,
+    UPI_HANDLE,
+}
+
+/** Lifecycle state of a [FinancialSource]. */
+enum class SourceStatus {
+    /** User has labelled this source and we trust it. */
+    CONFIRMED,
+
+    /** Discovered by an agent and queued for the user to label. */
+    NEEDS_REVIEW,
+}

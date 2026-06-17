@@ -2,6 +2,7 @@ package com.spendai.app.data.local.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -19,12 +20,22 @@ import androidx.room.PrimaryKey
  *    where dual-SIM ROMs deliver the same SMS twice. If a sender legitimately
  *    sends two messages in the same millisecond, the second is dropped — an
  *    acceptable v1 trade-off and far better than double-counting expenses.
+ *  - `parsedSmsId` for the per-row audit lookup from the home screen.
  */
 @Entity(
     tableName = "raw_sms",
     indices = [
         Index("status"),
-        Index(value = ["senderAddress", "timestamp"], unique = true)
+        Index(value = ["senderAddress", "timestamp"], unique = true),
+        Index("parsedSmsId"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = ParsedSms::class,
+            parentColumns = ["id"],
+            childColumns = ["parsedSmsId"],
+            onDelete = ForeignKey.SET_NULL,
+        )
     ]
 )
 data class RawSmsMessage(
@@ -42,5 +53,8 @@ data class RawSmsMessage(
     val timestamp: Long,
 
     @ColumnInfo(name = "status")
-    val status: SmsStatus = SmsStatus.UNPARSED
+    val status: SmsStatus = SmsStatus.UNPARSED,
+
+    @ColumnInfo(name = "parsedSmsId")
+    val parsedSmsId: Long? = null,
 )

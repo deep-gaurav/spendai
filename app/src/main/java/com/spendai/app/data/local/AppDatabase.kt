@@ -5,24 +5,52 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import com.spendai.app.data.local.dao.AccountDao
 import com.spendai.app.data.local.dao.FinancialSourceDao
+import com.spendai.app.data.local.dao.MerchantDao
+import com.spendai.app.data.local.dao.ParsedSmsDao
+import com.spendai.app.data.local.dao.PendingReviewDao
 import com.spendai.app.data.local.dao.SmsDao
+import com.spendai.app.data.local.dao.TransactionDao
+import com.spendai.app.data.local.dao.TransactionLinkDao
+import com.spendai.app.data.local.entity.Account
 import com.spendai.app.data.local.entity.FinancialSource
+import com.spendai.app.data.local.entity.Merchant
+import com.spendai.app.data.local.entity.ParsedSms
+import com.spendai.app.data.local.entity.PendingReview
 import com.spendai.app.data.local.entity.RawSmsMessage
+import com.spendai.app.data.local.entity.Transaction
+import com.spendai.app.data.local.entity.TransactionLink
+import com.spendai.app.data.local.migrations.MIGRATION_1_2
 
 /**
- * The single Room database for SpendAI Phase 1.
+ * The single Room database for SpendAI.
  *
  * Schema is exported to `app/schemas/` (configured in app/build.gradle.kts)
- * so we can diff versions in code review and write migration tests later.
+ * so we can diff versions in code review and write migration tests.
  *
- * `fallbackToDestructiveMigration` is appropriate for v1 because there are
- * no users yet. We will write explicit migrations from v1 onwards — losing
- * user data on a v1 → v2 schema bump would be a privacy bug, not a feature.
+ * v1 → v2 introduced the multi-agent pipeline tables
+ * (parsed_sms, account, merchant, transaction, transaction_link,
+ * pending_review) and additive columns on the existing two tables.
+ * `fallbackToDestructiveMigration` is intentionally absent in v2 —
+ * losing user data on a schema bump would be a privacy bug, not a
+ * feature, and the migration test in
+ * [com.spendai.app.data.local.migrations.Migration1To2Test] guards
+ * the SQL.
  */
 @Database(
-    entities = [RawSmsMessage::class, FinancialSource::class],
-    version = 1,
+    entities = [
+        RawSmsMessage::class,
+        FinancialSource::class,
+        ParsedSms::class,
+        Account::class,
+        Merchant::class,
+        Transaction::class,
+        TransactionLink::class,
+        PendingReview::class,
+    ],
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -30,9 +58,18 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun smsDao(): SmsDao
     abstract fun financialSourceDao(): FinancialSourceDao
+    abstract fun parsedSmsDao(): ParsedSmsDao
+    abstract fun accountDao(): AccountDao
+    abstract fun merchantDao(): MerchantDao
+    abstract fun transactionDao(): TransactionDao
+    abstract fun transactionLinkDao(): TransactionLinkDao
+    abstract fun pendingReviewDao(): PendingReviewDao
 
     companion object {
         private const val DB_NAME = "spendai.db"
+
+        /** All known migrations in order. Add MIGRATION_2_3, ... as needed. */
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2)
 
         @Volatile
         private var instance: AppDatabase? = null
@@ -49,7 +86,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-                .fallbackToDestructiveMigration()
+                .addMigrations(*ALL_MIGRATIONS)
                 .build()
     }
 }

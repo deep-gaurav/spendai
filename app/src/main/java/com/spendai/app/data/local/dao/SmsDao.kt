@@ -39,6 +39,21 @@ interface SmsDao {
     @Query("UPDATE raw_sms SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: Long, status: SmsStatus)
 
+    @Query("UPDATE raw_sms SET parsedSmsId = :parsedSmsId WHERE id = :id")
+    suspend fun setParsedSmsId(id: Long, parsedSmsId: Long)
+
     @Query("SELECT COUNT(*) FROM raw_sms WHERE status = :status")
     suspend fun countByStatus(status: SmsStatus): Int
+
+    /**
+     * Same as [getByStatusOnce] but bounded by the SMS timestamp.
+     * Used by [com.spendai.app.domain.ingestion.IngestionPipeline]
+     * to pick up the rows it just inserted from a [SmsSource].
+     */
+    @Query("SELECT * FROM raw_sms WHERE status = :status AND timestamp >= :startMillis AND timestamp < :endMillis ORDER BY timestamp ASC")
+    suspend fun getByStatusInRangeOnce(
+        status: SmsStatus = SmsStatus.UNPARSED,
+        startMillis: Long,
+        endMillis: Long,
+    ): List<RawSmsMessage>
 }

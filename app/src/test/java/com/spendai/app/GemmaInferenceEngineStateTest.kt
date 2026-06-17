@@ -46,7 +46,7 @@ class GemmaInferenceEngineStateTest {
         val engine = GemmaInferenceEngine()
         assertThrows(IllegalArgumentException::class.java) {
             kotlinx.coroutines.runBlocking {
-                engine.generatePredictionStreaming("hello").collect { /* unreachable */ }
+                engine.generatePredictionTracking("hello", "test.step").collect { /* unreachable */ }
             }
         }
     }

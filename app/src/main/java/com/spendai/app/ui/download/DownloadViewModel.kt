@@ -1,6 +1,7 @@
 package com.spendai.app.ui.download
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -20,9 +21,6 @@ import java.io.File
 
 /**
  * UI state for the download screen.
- *
- * [present] is true if the model file is already on disk before the user
- * taps Start. In that case we can skip straight to the Continue button.
  */
 data class DownloadUiState(
     val present: Boolean = false,
@@ -31,6 +29,7 @@ data class DownloadUiState(
     val totalBytes: Long = -1L,
     val done: Boolean = false,
     val error: String? = null,
+    val apiKey: String = "",
 )
 
 class DownloadViewModel(
@@ -48,81 +47,59 @@ class DownloadViewModel(
         refreshPresent()
     }
 
+    fun getSavedApiKey(): String {
+        val app = getApplication<Application>()
+        val prefs = app.getSharedPreferences("spendai_settings", Context.MODE_PRIVATE)
+        return prefs.getString("gemini_api_key", "") ?: ""
+    }
+
+    private fun saveApiKey(apiKey: String) {
+        val app = getApplication<Application>()
+        val prefs = app.getSharedPreferences("spendai_settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("gemini_api_key", apiKey.trim()).apply()
+    }
+
+    fun onApiKeyChanged(newKey: String) {
+        saveApiKey(newKey)
+        val hasKey = newKey.trim().isNotEmpty()
+        _ui.update { it.copy(apiKey = newKey, present = hasKey, done = hasKey) }
+        setup.setModelPresent(hasKey)
+    }
+
     private fun refreshPresent() {
         viewModelScope.launch {
-            val app = getApplication<Application>()
-            val file = File(app.filesDir, "models/${DownloadConfig.HF_FILENAME}")
-            val present = file.exists() && file.length() > 0L
-            _ui.update { it.copy(present = present, done = present) }
-            if (present) {
-                setup.setModelPresent(true)
-            }
+            val key = getSavedApiKey()
+            val hasKey = key.isNotEmpty()
+            _ui.update { it.copy(apiKey = key, present = hasKey, done = hasKey) }
+            setup.setModelPresent(hasKey)
         }
     }
 
     fun start() {
-        if (_ui.value.running || _ui.value.present || _ui.value.done) return
-        val app = getApplication<Application>()
-        val target = File(app.filesDir, "models/${DownloadConfig.HF_FILENAME}")
-        _ui.update { it.copy(running = true, error = null, bytesDownloaded = 0L, totalBytes = -1L) }
-        job = viewModelScope.launch {
-            downloader.download(
-                url = DownloadConfig.HF_RESOLVE_URL,
-                destination = target,
-                onProgress = { state -> handleState(state) },
-            ).onFailure { err ->
-                Log.w(TAG, "download() reported failure", err)
-                _ui.update { it.copy(running = false, error = err.message ?: "Download failed") }
-            }.onSuccess {
-                _ui.update { it.copy(running = false, done = true, present = true, error = null) }
-                setup.setModelPresent(true)
-            }
-        }
+        // Obsolete local download logic
     }
 
     fun cancel() {
-        job?.cancel()
-        job = null
-        _ui.update { it.copy(running = false) }
+        // Obsolete local download logic
     }
 
     fun retry() {
-        _ui.update { it.copy(error = null) }
-        start()
+        // Obsolete local download logic
     }
 
     private fun handleState(state: DownloadState) {
-        when (state) {
-            is DownloadState.Running -> _ui.update {
-                it.copy(
-                    running = true,
-                    bytesDownloaded = state.bytesDownloaded,
-                    totalBytes = state.totalBytes,
-                )
-            }
-            DownloadState.Done -> _ui.update { it.copy(running = false, done = true, present = true) }
-            is DownloadState.Failed -> _ui.update {
-                it.copy(running = false, error = state.message)
-            }
-            DownloadState.Idle -> Unit
-        }
+        // Obsolete local download logic
     }
 
     /**
-     * Hook used by the test screen to confirm the model is on disk
-     * before it tries to initialise the engine. Re-runs the same check
-     * the screen does, so we never see a stale "present" flag after a
-     * user manually deletes the file.
+     * Hook used by the test screen to confirm the model is ready/present.
      */
     fun isModelPresent(): Boolean {
-        val app = getApplication<Application>()
-        val file = File(app.filesDir, "models/${DownloadConfig.HF_FILENAME}")
-        val present = file.exists() && file.length() > 0L
-        if (present && !_ui.value.present) {
-            _ui.update { it.copy(present = true, done = true) }
-            viewModelScope.launch { setup.setModelPresent(true) }
-        }
-        return present
+        val key = getSavedApiKey()
+        val hasKey = key.isNotEmpty()
+        _ui.update { it.copy(apiKey = key, present = hasKey, done = hasKey) }
+        viewModelScope.launch { setup.setModelPresent(hasKey) }
+        return hasKey
     }
 
     companion object {

@@ -41,7 +41,7 @@ class PermissionsViewModelTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Before
     fun resetStore() = runBlocking { Dispatchers.setMain(UnconfinedTestDispatcher())
-        
+
         SetupRepository(ApplicationProvider.getApplicationContext()).reset()
     }
 
@@ -52,26 +52,34 @@ class PermissionsViewModelTest {
     }
 
     @Test
-    fun `onResult with SMS granted updates UI state`() {
+    fun `onResult with both SMS permissions granted updates UI state`() {
         val (permissions, _) = newPermissionsVm()
         permissions.onResult(
             mapOf(
-                PermissionsViewModel.SmsPermission to true,
-                PermissionsViewModel.SmsReadPermission to true,
-                PermissionsViewModel.NotificationsPermission to false,
+                android.Manifest.permission.RECEIVE_SMS to true,
+                android.Manifest.permission.READ_SMS to true,
+                android.Manifest.permission.POST_NOTIFICATIONS to false,
             )
         )
-        assertTrue(permissions.ui.value.smsGranted)
+        assertTrue(permissions.ui.value.receiveSmsGranted)
+        assertTrue(permissions.ui.value.readSmsGranted)
+        assertTrue(permissions.ui.value.canContinue)
         assertFalse(permissions.ui.value.notificationsGranted)
-        // Persistence side-effect is exercised end-to-end in
-        // SetupStateTest; here we only lock down the UI transitions.
     }
 
     @Test
-    fun `onResult without SMS keeps UI blocked and does not persist`() = runBlocking {
+    fun `onResult with receive-only keeps ingest disabled`() = runBlocking {
         val (permissions, _) = newPermissionsVm()
-        permissions.onResult(mapOf(PermissionsViewModel.SmsPermission to false))
-        assertFalse(permissions.ui.value.smsGranted)
+        permissions.onResult(
+            mapOf(
+                android.Manifest.permission.RECEIVE_SMS to true,
+                android.Manifest.permission.READ_SMS to false,
+            )
+        )
+        assertTrue(permissions.ui.value.receiveSmsGranted)
+        assertFalse(permissions.ui.value.readSmsGranted)
+        // Continue is still allowed (receiver can fire for new SMS)
+        assertTrue(permissions.ui.value.canContinue)
         val persisted = SetupRepository(ApplicationProvider.getApplicationContext()).state.first()
         assertFalse(persisted.permissionsGranted)
     }

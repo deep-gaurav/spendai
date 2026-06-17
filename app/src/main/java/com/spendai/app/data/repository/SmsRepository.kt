@@ -17,10 +17,19 @@ class SmsRepository(private val dao: SmsDao) {
     suspend fun unparsedOnce(): List<RawSmsMessage> =
         dao.getByStatusOnce(SmsStatus.UNPARSED)
 
+    suspend fun unparsedInRange(startMillis: Long, endMillis: Long): List<RawSmsMessage> =
+        dao.getByStatusInRangeOnce(
+            SmsStatus.UNPARSED, startMillis, endMillis,
+        )
+
     fun observeUnparsed(): Flow<List<RawSmsMessage>> =
         dao.observeByStatus(SmsStatus.UNPARSED)
 
     suspend fun markParsed(id: Long) = dao.updateStatus(id, SmsStatus.PARSED)
     suspend fun markIgnored(id: Long) = dao.updateStatus(id, SmsStatus.IGNORED)
     suspend fun pendingCount(): Int = dao.countByStatus(SmsStatus.UNPARSED)
+
+    /** Backfill the [RawSmsMessage.parsedSmsId] after Agent 1 succeeds. */
+    suspend fun setParsedSmsId(rawSmsId: Long, parsedSmsId: Long) =
+        dao.setParsedSmsId(rawSmsId, parsedSmsId)
 }

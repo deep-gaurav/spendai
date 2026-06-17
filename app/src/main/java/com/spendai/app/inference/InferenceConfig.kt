@@ -15,7 +15,7 @@ import com.spendai.app.BuildConfig
  * @property cacheDir LiteRT-LM speeds up its second load by writing
  *   compiled artifacts here. Defaults to `context.cacheDir.path`.
  * @property maxTokens maximum tokens the model may emit in one call.
- *   For a 2.58B model on a 4 GB-RAM device, 1024 is generous.
+ *   Matches the Gallery default of 4K (Gemma 4 E2B's context length).
  * @property temperature 0.2f = nearly deterministic. Expense extraction
  *   is structured work, not creative writing — keep this low.
  * @property topK nucleus sampling cutoff.
@@ -26,13 +26,17 @@ import com.spendai.app.BuildConfig
  *   speedup with no quality loss (per Google's Gemma 4 perf page).
  *   It is a global static and must be flipped BEFORE [com.google.ai.edge.litertlm.Engine]
  *   is instantiated.
- * @property preferredBackend first backend to try. The [GemmaInferenceEngine]
+ * @property preferredBackend first backend to try. With the manifest
+ *   declaring `libedgetpu_litert.so` (Tensor devices) and
+ *   `libcdsprpc.so` (Snapdragon) plus the
+ *   `play-services-tflite-gpu` dependency, NPU now resolves to a
+ *   working hardware backend on every Pixel. The [GemmaInferenceEngine]
  *   may fall through to slower backends per the chosen [BackendStrategy].
  */
 data class InferenceConfig(
     val modelFileName: String = BuildConfig.GEMMA_MODEL_FILENAME,
     val cacheDir: String? = null,
-    val maxTokens: Int = 1024,
+    val maxTokens: Int = 32768,
     val temperature: Float = 0.2f,
     val topK: Int = 40,
     val topP: Float = 0.95f,
@@ -41,8 +45,23 @@ data class InferenceConfig(
 )
 
 /**
- * Coarse-grained preferred backend hint. The engine may still fall through
- * to a different backend if the preferred one fails to initialise
- * (NPU is famously picky on unbranded HF weights).
+ * Coarse-grained preferred backend hint. The engine will use the
+ * matching [com.spendai.app.inference.BackendStrategy]:
+ *
+ * - [NPU] routes to the Google Edge TPU on Tensor devices and to
+ *   the QNN NPU on Snapdragon. Tries NPU first, then falls through
+ *   to GPU, then CPU.
+ * - [GPU] routes to OpenCL/Vulkan. Tries GPU first, then CPU. This
+ *   was the original default but is broken on the Pixel 9 Pro Fold
+ *   (and likely other Tensor-G2/G3 foldables) — the engine
+ *   "initialises" on the Adreno GPU but the
+ *   `libLiteRtTopKOpenClSampler.so` / `libLiteRtTopKWebGpuSampler.so`
+ *   dispatch libraries are not packaged with the Play Services
+ *   TFLite shim, so every inference call is cancelled by the
+ *   runtime with `Status Code: 1` (kCancelled) before any tokens
+ *   are produced. Use [CPU] on those devices.
+ * - [CPU] is the XNNPack floor. Always works, always slow. This is
+ *   the new default for the same reason [GPU] is broken on Tensor
+ *   foldables.
  */
 enum class PreferredBackend { NPU, GPU, CPU }

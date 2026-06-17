@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "description": "Canonical SMS templates the agents are expected to handle. Each entry has the sender, the body, the expected A1 output (kind/amount/direction/channel/merchant), and the expected A2 merchant name after normalisation. Add a new entry whenever a new bank template is added; the corpus is the long-term regression net for the multi-agent pipeline.",
+  "entries": [
+    {
+      "id": "hdfc-credit-card-zomato",
+      "sender": "VK-HDFCBK",
+      "body": "Rs.1,234.56 spent on HDFC Credit Card ending 1234 at ZOMATO on 10-Jun-2025 14:32. Avl limit Rs.50,000.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 123456,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "CARD",
+      "expectedMerchantRaw": "ZOMATO",
+      "expectedNormalizedMerchant": "zomato"
+    },
+    {
+      "id": "icici-debit-card-swiggy",
+      "sender": "VK-ICICIB",
+      "body": "ICICI Bank Acct XX5678 debited with Rs 459.00 on 11-Jun-25 at SWIGGY INSTAMART. Avl bal Rs 12,345.67.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 45900,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "CARD",
+      "expectedMerchantRaw": "SWIGGY INSTAMART",
+      "expectedNormalizedMerchant": "swiggy instamart"
+    },
+    {
+      "id": "sbi-upi-zomato",
+      "sender": "VK-SBIINB",
+      "body": "Dear Customer, your a/c XXXX1234 has been debited by Rs.250.00 on 12/06/2025 towards UPI ref 512345678901. To 9123456789@upi (ZOMATO).",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 25000,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "UPI",
+      "expectedMerchantRaw": "ZOMATO"
+    },
+    {
+      "id": "hdfc-credit-card-refund",
+      "sender": "VK-HDFCBK",
+      "body": "Rs.500.00 refund credited to HDFC Credit Card ending 1234 on 13-Jun-2025. Ref: ZOMATO_REFUND_001.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 50000,
+      "expectedDirection": "CREDIT",
+      "expectedChannel": "CARD",
+      "expectedMerchantRaw": "ZOMATO_REFUND_001"
+    },
+    {
+      "id": "icici-salary-credit",
+      "sender": "VK-ICICIB",
+      "body": "ICICI Bank Acct XX5678 credited with Rs 50,000.00 on 30-Jun-25. Info: SALARY CREDIT ACME PVT LTD.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 5000000,
+      "expectedDirection": "CREDIT",
+      "expectedChannel": "NEFT",
+      "expectedMerchantRaw": "ACME PVT LTD",
+      "expectedNormalizedMerchant": "acme"
+    },
+    {
+      "id": "paytm-wallet-debit",
+      "sender": "VK-PAYTMB",
+      "body": "Rs 199.00 debited from Paytm Wallet for Recharge of Airtel Prepaid. Tx ID: TX1234567.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 19900,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "WALLET",
+      "expectedMerchantRaw": "AIRTEL PREPAID"
+    },
+    {
+      "id": "axis-atm-withdrawal",
+      "sender": "VK-AXISBK",
+      "body": "Rs 5,000.00 withdrawn from Axis Bank a/c XX4321 at ATM ID AXM123 on 15-Jun-25 21:15.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 500000,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "ATM"
+    },
+    {
+      "id": "amazon-pay-icici-credit",
+      "sender": "VK-AMAZPB",
+      "body": "Rs 1,299.00 credited to Amazon Pay balance from ICICI Bank XXXX1234 via UPI ref 9988776655.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 129900,
+      "expectedDirection": "CREDIT",
+      "expectedChannel": "UPI"
+    },
+    {
+      "id": "self-transfer-debit",
+      "sender": "VK-ICICIB",
+      "body": "ICICI Bank Acct XX5678 debited with Rs 3,000.00 on 18-Jun-25. UPI ref 112233445566. To PHONEPE WALLET (self transfer).",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 300000,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "UPI"
+    },
+    {
+      "id": "self-transfer-credit",
+      "sender": "VK-PHONPE",
+      "body": "Rs 3,000.00 credited to your PhonePe Wallet from UPI ref 112233445566 on 18-Jun-25.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 300000,
+      "expectedDirection": "CREDIT",
+      "expectedChannel": "UPI"
+    },
+    {
+      "id": "otp-ignore",
+      "sender": "VK-AMAZON",
+      "body": "Your OTP for transaction is 847291. Do not share with anyone.",
+      "expectedKind": "IGNORE"
+    },
+    {
+      "id": "marketing-ignore",
+      "sender": "AD-PROMO",
+      "body": "Flat 50% off on summer collection! Shop now at www.example.com. T&C apply.",
+      "expectedKind": "IGNORE"
+    },
+    {
+      "id": "system-alert-ignore",
+      "sender": "VK-HDFCBK",
+      "body": "ALERT: Your HDFC Bank account was accessed from a new device on 20-Jun-25. If not you, call 1860-XXX-XXXX.",
+      "expectedKind": "IGNORE"
+    },
+    {
+      "id": "kotak-netbanking",
+      "sender": "VK-KOTAKB",
+      "body": "Rs 7,500.00 debited from Kotak Bank a/c XX9988 via Net Banking ref NB2025062012345 on 20-Jun-25.",
+      "expectedKind": "TRANSACTION",
+      "expectedAmountPaise": 750000,
+      "expectedDirection": "DEBIT",
+      "expectedChannel": "NETBANKING"
+    }
+  ]
+}

@@ -56,9 +56,9 @@ fun PermissionsScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val permsToRequest = remember(ui.smsGranted, ui.notificationsGranted) {
+    val permsToRequest = remember(ui.receiveSmsGranted, ui.readSmsGranted, ui.notificationsGranted) {
         buildList {
-            if (!ui.smsGranted) {
+            if (!ui.receiveSmsGranted || !ui.readSmsGranted) {
                 add(Manifest.permission.RECEIVE_SMS)
                 add(Manifest.permission.READ_SMS)
             }
@@ -129,7 +129,7 @@ fun PermissionsScreen(
                 iconRes = R.drawable.ic_sms_cartoon,
                 title = stringResource(R.string.permission_sms_title),
                 subtitle = stringResource(R.string.permission_sms_subtitle),
-                granted = ui.smsGranted,
+                granted = ui.receiveSmsGranted && ui.readSmsGranted,
             )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -174,11 +174,11 @@ fun PermissionsScreen(
             BigPrimaryButton(
                 onClick = onContinue,
                 text = stringResource(R.string.onboarding_continue),
-                enabled = ui.smsGranted,
+                enabled = ui.canContinue,
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            if (!ui.smsGranted && !ui.smsBlocked) {
+            if (!ui.canContinue && !ui.smsBlocked) {
                 Text(
                     text = stringResource(R.string.permissions_blocked_hint),
                     style = MaterialTheme.typography.bodyMedium,

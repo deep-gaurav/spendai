@@ -130,8 +130,8 @@ class TestViewModel(
     private fun labelFor(state: InferenceState): String = when (state) {
         InferenceState.Uninitialized -> "Uninitialized"
         InferenceState.Loading -> "Loading"
-        InferenceState.Ready -> "Ready"
-        InferenceState.Busy -> "Busy"
+        is InferenceState.Ready -> "Ready on ${state.backendLabel}"
+        is InferenceState.Busy -> "Working — ${state.progress.tokensEmitted} tokens"
         is InferenceState.Error -> "Error: ${state.message}"
     }
 

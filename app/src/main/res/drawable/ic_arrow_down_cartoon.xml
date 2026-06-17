@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <!-- Down arrow inside a chunky ink-bordered circle. Matches the
+         existing cartoon-icon style (ic_play_cartoon etc.). -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M16,2 C8.27,2 2,8.27 2,16 C2,23.73 8.27,30 16,30 C23.73,30 30,23.73 30,16 C30,8.27 23.73,2 16,2 Z M16,27 C9.93,27 5,22.07 5,16 C5,9.93 9.93,5 16,5 C22.07,5 27,9.93 27,16 C27,22.07 22.07,27 16,27 Z" />
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M15,10 L17,10 L17,18.17 L20.59,14.59 L22,16 L16,22 L10,16 L11.41,14.59 L15,18.17 Z" />
+</vector>

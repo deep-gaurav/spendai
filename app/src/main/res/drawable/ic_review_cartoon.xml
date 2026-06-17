@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <!-- Sticker card with a question mark - the "review me" call. -->
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M5,5 L27,5 L27,27 L5,27 Z M8,8 L8,24 L24,24 L24,8 Z" />
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M16,9 C13.79,9 12,10.79 12,13 L14,13 C14,11.9 14.9,11 16,11 C17.1,11 18,11.9 18,13 C18,14.5 16,14.75 16,17 L18,17 C18,15.25 20,14.5 20,13 C20,10.79 18.21,9 16,9 Z" />
+    <path
+        android:fillColor="#1A0F00"
+        android:pathData="M15,19 L17,19 L17,21 L15,21 Z" />
+</vector>
