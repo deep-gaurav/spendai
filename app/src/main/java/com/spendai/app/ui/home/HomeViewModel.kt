@@ -55,6 +55,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         IngestionService.start(getApplication(), range)
     }
 
+    /**
+     * Start the "Re-process pending" pipeline. The service ignores
+     * the date range and re-runs A1+A2 on any raw_sms row that does
+     * not have a corresponding `spend_transaction`. Covers
+     * UNPARSED + IGNORED + PARSED-without-txn — i.e. anything that
+     * was stuck from a previous Doze-killed or OOM-killed run.
+     */
+    fun startReprocess() {
+        IngestionService.startReprocess(getApplication())
+    }
+
     fun cancelIngest() {
         IngestionService.cancel(getApplication())
     }

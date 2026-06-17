@@ -45,11 +45,6 @@ interface SmsDao {
     @Query("SELECT COUNT(*) FROM raw_sms WHERE status = :status")
     suspend fun countByStatus(status: SmsStatus): Int
 
-    /**
-     * Same as [getByStatusOnce] but bounded by the SMS timestamp.
-     * Used by [com.spendai.app.domain.ingestion.IngestionPipeline]
-     * to pick up the rows it just inserted from a [SmsSource].
-     */
     @Query("SELECT * FROM raw_sms WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): RawSmsMessage?
 
@@ -59,4 +54,19 @@ interface SmsDao {
         startMillis: Long,
         endMillis: Long,
     ): List<RawSmsMessage>
+
+    /**
+     * All `raw_sms` rows that don't have a corresponding
+     * `spend_transaction.rawSmsId` — the "stuck" rows that the
+     * Re-process pending CTA picks up. Covers UNPARSED, IGNORED,
+     * and PARSED-without-txn.
+     */
+    @Query(
+        """
+        SELECT * FROM raw_sms
+        WHERE id NOT IN (SELECT rawSmsId FROM spend_transaction)
+        ORDER BY timestamp ASC
+        """
+    )
+    suspend fun getPendingNotCommitted(): List<RawSmsMessage>
 }

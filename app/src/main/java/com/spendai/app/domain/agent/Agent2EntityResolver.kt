@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.spendai.app.data.local.AppDatabase
 import com.spendai.app.data.local.entity.Account
+import com.spendai.app.data.local.entity.Category
 import com.spendai.app.data.local.entity.FinancialSource
 import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.ParsedSms
@@ -12,6 +13,7 @@ import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionDirection
 import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.TransactionRepository
@@ -29,9 +31,10 @@ import kotlinx.coroutines.withContext
  *  1. Loads a small slice of the local DB (top-N sources, accounts,
  *     merchants by recency) into a prompt bundle.
  *  2. Asks the model to link the transaction to existing rows
- *     or propose new ones.
- *  3. Materialises the source / account / merchant rows (insert
- *     when "new", dedup on the existing indices).
+ *     or propose new ones. The model also emits a freeform title
+ *     and a category name + emoji.
+ *  3. Materialises the source / account / merchant / category rows
+ *     (insert when "new", dedup on the existing indices).
  *  4. Writes the `spend_transaction` row.
  *
  * Steps 3 and 4 happen inside a single Room `@Transaction` so the
@@ -43,6 +46,24 @@ import kotlinx.coroutines.withContext
  * is preserved on the row for the edit UI to display but does NOT
  * gate the commit. A1's `kind=IGNORE` is the only "don't commit"
  * signal and is handled by the pipeline before A2 is called.
+ *
+ * ## Day grouping fix
+ *
+ * `txnAtMillis` is taken from the SMS receive timestamp (passed in
+ * by the pipeline) and is no longer derived from the model's
+ * `parsed.txnAtMillis`. This means an SMS received at 23:59 and
+ * one received at 00:01 always end up in their respective receive
+ * days, even if the model guesses a slightly different transaction
+ * time. The model's `txnAtMillis` is still kept on `parsed_sms`
+ * for the audit log.
+ *
+ * ## Categories
+ *
+ * The LLM emits a `categoryName` + `categoryEmoji` pair. The
+ * resolver looks the name up by its normalised form and creates a
+ * new [Category] row on first sight, preserving the LLM's emoji.
+ * Reusing a name always returns the existing row (the original
+ * emoji wins). The transaction and merchant store the FK.
  *
  * ## Prompt size
  *
@@ -58,6 +79,7 @@ class Agent2EntityResolver(
     private val sourceRepository: FinancialSourceRepository,
     private val accountRepository: AccountRepository,
     private val merchantRepository: MerchantRepository,
+    private val categoryRepository: CategoryRepository,
     private val transactionRepository: TransactionRepository,
 ) {
     private companion object {
@@ -75,12 +97,21 @@ class Agent2EntityResolver(
     }
 
     /**
+     * @param parsed the [ParsedSms] row A1 produced.
+     * @param smsTimestampMillis the raw SMS receive timestamp. Used
+     *   as the transaction's [Transaction.txnAtMillis] so the
+     *   transaction lives in the same calendar day the user saw the
+     *   message. Per the v0.6 design, the model's txnAtMillis is no
+     *   longer copied onto the row.
      * @return the new [Transaction.id]. Throws on model failure
      *   (no parseable JSON, or `a2Confidence` out of range) so the
      *   pipeline can route to `skippedByA2++` and leave the
      *   raw_sms row UNPARSED for a future retry.
      */
-    suspend fun resolveAndCommit(parsed: ParsedSms): A2Outcome = withContext(Dispatchers.IO) {
+    suspend fun resolveAndCommit(
+        parsed: ParsedSms,
+        smsTimestampMillis: Long,
+    ): A2Outcome = withContext(Dispatchers.IO) {
         require(engine.state.value is InferenceState.Ready) {
             "Engine not READY (state=${engine.state.value}). Call initialize() first."
         }
@@ -88,7 +119,7 @@ class Agent2EntityResolver(
         val userMessage = AgentPrompt.a2UserMessage(parsed, context.toBundleJson())
         val fullPrompt = AgentPrompt.A2_SYSTEM_INSTRUCTION + "\n\n" + userMessage
 
-        Log.d(TAG, "A2 input parsedSmsId=${parsed.id} a1RawJson: ${truncate(parsed.a1RawJson)}")
+        Log.d(TAG, "A2 input parsedSmsId=${parsed.id} smsTs=$smsTimestampMillis a1RawJson: ${truncate(parsed.a1RawJson)}")
         Log.d(TAG, "A2 prompt sent to model (${fullPrompt.length} chars): ${truncate(fullPrompt)}")
         val firstText: String? = runCatching {
             engine.generatePredictionTracking(
@@ -100,7 +131,7 @@ class Agent2EntityResolver(
             .getOrNull()
         Log.d(TAG, "A2 raw model response (${firstText?.length ?: 0} chars): ${truncate(firstText)}")
         val firstParsed = firstText?.let { AgentJsonParse.tryParse(it, A2Contract.serializer()) }
-        Log.d(TAG, "A2 first-try parse: ${if (firstParsed != null) "OK a2Confidence=${firstParsed.a2Confidence}" else "FAILED (will retry)"}")
+        Log.d(TAG, "A2 first-try parse: ${if (firstParsed != null) "OK a2Confidence=${firstParsed.a2Confidence} title=${firstParsed.title} cat=${firstParsed.categoryName}/${firstParsed.categoryEmoji}" else "FAILED (will retry)"}")
 
         // If firstParsed is non-null, firstText is necessarily non-null
         // (firstParsed was derived from it). Same logic on the retry
@@ -135,7 +166,7 @@ class Agent2EntityResolver(
                 )
             }
         }
-        Log.d(TAG, "A2 final contract: a2Confidence=${contract.a2Confidence}")
+        Log.d(TAG, "A2 final contract: a2Confidence=${contract.a2Confidence} title=${contract.title} cat=${contract.categoryName}/${contract.categoryEmoji}")
 
         // Defensive: clamp confidence into [0, 1] in case the model
         // emitted something outside the contract.
@@ -147,17 +178,21 @@ class Agent2EntityResolver(
         val txnId = database.withTransaction {
             val sourceId = materialiseSource(contract.source, now)
             val accountId = materialiseAccount(sourceId, contract.account, now)
-            val merchantId = materialiseMerchant(contract.merchant, now)
+            val merchantRow = materialiseMerchant(contract.merchant, contract, now)
+            val categoryId = materialiseCategory(contract, now)
             val txn = buildTransaction(
                 parsed = parsed,
                 accountId = accountId,
-                merchantId = merchantId,
+                merchantId = merchantRow?.id,
+                categoryId = categoryId?.id,
+                contractTitle = contract.title,
+                smsTimestampMillis = smsTimestampMillis,
                 a2Confidence = contract.a2Confidence,
                 now = now,
             )
             insertTransaction(txn)
         }
-        Log.d(TAG, "A2 committed transactionId=$txnId parsedSmsId=${parsed.id}")
+        Log.d(TAG, "A2 committed transactionId=$txnId parsedSmsId=${parsed.id} categoryId=${contract.categoryName}")
         A2Outcome(
             transactionId = txnId,
             prompt = fullPrompt,
@@ -237,27 +272,69 @@ class Agent2EntityResolver(
             }
         }
 
-    private suspend fun materialiseMerchant(merchant: MerchantChoice, now: Long): Long? =
-        when (merchant) {
-            is MerchantChoice.Existing -> merchant.merchantId
-            is MerchantChoice.New -> {
-                val localNormalized = MerchantNormalizer.normalize(merchant.name)
-                    .ifEmpty { merchant.normalizedName }
-                val modelNormalized = merchant.normalizedName
-                merchantRepository.findByNormalizedName(localNormalized)?.id
-                    ?: merchantRepository.findByNormalizedName(modelNormalized)?.id
-                    ?: merchantRepository.findByVpa(merchant.vpa ?: "")?.id
-                    ?: merchantRepository.insert(
-                        Merchant(
-                            name = merchant.name,
-                            normalizedName = localNormalized,
-                            vpa = merchant.vpa,
-                            firstSeenAt = now,
-                        )
-                    )
-            }
-            is MerchantChoice.None -> null
+    /**
+     * Returns the [Merchant] row that was materialised (or the
+     * existing one). The caller reads `.id` to set on the
+     * transaction. Returns null when the LLM said "no merchant"
+     * (P2P transfer without a recognisable counterparty).
+     *
+     * If the LLM also emitted a category, this method updates the
+     * merchant's `categoryId` — but only when the merchant is
+     * freshly created or its existing category is null. Existing
+     * categorised merchants keep their category across
+     * re-categorisations.
+     */
+    private suspend fun materialiseMerchant(
+        merchant: MerchantChoice,
+        contract: A2Contract,
+        now: Long,
+    ): Merchant? = when (merchant) {
+        is MerchantChoice.Existing -> {
+            val row = merchantRepository.getById(merchant.merchantId) ?: return null
+            if (row.categoryId == null) {
+                val cat = materialiseCategory(contract, now) ?: return row
+                merchantRepository.update(row.copy(categoryId = cat.id))
+                row.copy(categoryId = cat.id)
+            } else row
         }
+        is MerchantChoice.New -> {
+            val localNormalized = MerchantNormalizer.normalize(merchant.name)
+                .ifEmpty { merchant.normalizedName }
+            val modelNormalized = merchant.normalizedName
+            val category = materialiseCategory(contract, now)
+            val existing = merchantRepository.findByNormalizedName(localNormalized)
+                ?: merchantRepository.findByNormalizedName(modelNormalized)
+                ?: merchantRepository.findByVpa(merchant.vpa ?: "")
+            if (existing != null) {
+                if (existing.categoryId == null && category != null) {
+                    merchantRepository.update(existing.copy(categoryId = category.id))
+                    existing.copy(categoryId = category.id)
+                } else existing
+            } else {
+                val newId = merchantRepository.insert(
+                    Merchant(
+                        name = merchant.name,
+                        normalizedName = localNormalized,
+                        vpa = merchant.vpa,
+                        categoryId = category?.id,
+                        firstSeenAt = now,
+                    )
+                )
+                merchantRepository.getById(newId)
+            }
+        }
+        is MerchantChoice.None -> null
+    }
+
+    /**
+     * Look up or create the [Category] from the contract's
+     * `categoryName`. Returns null when the LLM did not emit a
+     * categoryName (i.e. "I am not confident enough").
+     */
+    private suspend fun materialiseCategory(contract: A2Contract, now: Long): Category? {
+        val name = contract.categoryName?.takeIf { it.isNotBlank() } ?: return null
+        return categoryRepository.getOrCreate(name, contract.categoryEmoji, now)
+    }
 
     private suspend fun insertTransaction(txn: Transaction): Long =
         transactionRepository.insert(txn)
@@ -266,6 +343,9 @@ class Agent2EntityResolver(
         parsed: ParsedSms,
         accountId: Long,
         merchantId: Long?,
+        categoryId: Long?,
+        contractTitle: String?,
+        smsTimestampMillis: Long,
         a2Confidence: Float,
         now: Long,
     ): Transaction {
@@ -275,7 +355,12 @@ class Agent2EntityResolver(
             else -> TransactionDirection.DEBIT
         }
         val currency = parsed.currency ?: "INR"
-        val txnAtMillis = parsed.txnAtMillis ?: now
+        // Per the v0.6 day-grouping fix, the transaction timestamp is
+        // the SMS receive timestamp. The model's `parsed.txnAtMillis`
+        // is preserved on `parsed_sms` for the audit log but not on
+        // this row.
+        val txnAtMillis = smsTimestampMillis
+        val title = contractTitle?.takeIf { it.isNotBlank() }
         return Transaction(
             accountId = accountId,
             merchantId = merchantId,
@@ -290,6 +375,8 @@ class Agent2EntityResolver(
             status = TransactionStatus.CONFIRMED.name,
             confidence = a2Confidence,
             notes = null,
+            title = title,
+            categoryId = categoryId,
             createdAt = now,
         )
     }

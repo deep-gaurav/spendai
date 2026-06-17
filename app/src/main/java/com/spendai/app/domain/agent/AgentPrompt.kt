@@ -151,7 +151,10 @@ Schema (one object, top-level fields in this order):
   "merchant":{"kind":"existing","merchantId":int,"confidence":float}
            | {"kind":"new","name":str,"normalizedName":str,"vpa":str|null,"confidence":float}
            | {"kind":"none","confidence":float},
-  "a2Confidence": float in [0.0, 1.0]
+  "a2Confidence": float in [0.0, 1.0],
+  "title": str|null,
+  "categoryName": str|null,
+  "categoryEmoji": str|null
 }
 
 Rules:
@@ -159,6 +162,27 @@ Rules:
 - "new" only when no existing row fits.
 - P2P UPI handle counterparty: merchant.kind="new" with vpa set, normalizedName = part before '@'.
 - a2Confidence = MIN of the three candidate confidences. It does not gate commit.
+- title (optional): a short, 2-6 word human label that captures the
+  transaction. Use the merchant name when natural ("Lunch at Zomato",
+  "Coffee at Third Wave"). For P2P UPI transfers without a merchant,
+  use "UPI to <name>" or "UPI from <name>". For salary/credit, use
+  "Salary" or "<Bank> Salary". For card autopay / subscription,
+  use "<Merchant> subscription". Set to null if you cannot produce
+  a clear, useful label.
+- categoryName (optional): the most fitting category. Pick from
+  common conventions (Food, Fuel, Salary, Subscription, Rent,
+  Travel, Health, Groceries, Shopping, Transfer, Bills,
+  Entertainment, Other) but you MAY introduce a new category name
+  if none of those fit well. The same merchant should map to the
+  same categoryName across transactions. Set to null if you are
+  not confident enough to commit a category.
+- categoryEmoji (optional, only meaningful alongside categoryName):
+  a single emoji that visually represents the category
+  (e.g. food->burger, fuel->pump, salary->money bag, subscription->tv,
+  groceries->cart, transport->bus, shopping->bags, bills->receipt,
+  entertainment->clapper, health->pill, transfer->arrows). Pick
+  something the user will recognise at a glance. Defaults to a
+  generic money emoji if omitted.
 """
 
     fun a2UserMessage(parsed: ParsedSms, contextBundle: String): String = buildString {

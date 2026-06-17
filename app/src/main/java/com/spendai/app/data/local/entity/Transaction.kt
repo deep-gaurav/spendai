@@ -31,6 +31,7 @@ import androidx.room.PrimaryKey
         Index("merchantId"),
         Index("rawSmsId"),
         Index("parsedSmsId"),
+        Index("categoryId"),
     ],
     foreignKeys = [
         ForeignKey(
@@ -56,6 +57,12 @@ import androidx.room.PrimaryKey
             parentColumns = ["id"],
             childColumns = ["parsedSmsId"],
             onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = Category::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.SET_NULL,
         ),
     ]
 )
@@ -101,6 +108,12 @@ data class Transaction(
 
     @ColumnInfo(name = "notes")
     val notes: String? = null,
+
+    @ColumnInfo(name = "title")
+    val title: String? = null,
+
+    @ColumnInfo(name = "categoryId")
+    val categoryId: Long? = null,
 
     @ColumnInfo(name = "createdAt")
     val createdAt: Long,

@@ -3,12 +3,17 @@ package com.spendai.app.ui.debug
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.spendai.app.SpendAiApp
 import com.spendai.app.data.local.entity.IngestionLog
+import com.spendai.app.data.local.entity.IngestionLogA1
+import com.spendai.app.data.local.entity.IngestionLogA2
 import com.spendai.app.data.local.entity.RawSmsMessage
-import com.spendai.app.data.local.entity.SmsStatus
 import com.spendai.app.data.repository.IngestionLogRepository
 import com.spendai.app.data.repository.SmsRepository
+import com.spendai.app.worker.DailyParsingWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +32,7 @@ data class DebugLogRow(
     val log: IngestionLog,
     val sender: String,
     val bodyPreview: String,
+    val canRetry: Boolean,
 )
 
 data class DebugLogDetailState(
@@ -45,12 +51,6 @@ class DebugLogViewModel(application: Application) : AndroidViewModel(application
     private val logRepo: IngestionLogRepository = app.ingestionLogRepository
     private val smsRepo: SmsRepository = app.smsRepository
 
-    /**
-     * Bumps on demand (after the detail screen reads, or on a
-     * navigation back). We re-read logs and join with raw SMS
-     * bodies each time. This is cheap (default 200 rows, one
-     * DB hit per row) and keeps the data fresh.
-     */
     private val refresh = MutableStateFlow(0L)
 
     val rows: StateFlow<List<DebugLogRow>> = refresh
@@ -70,15 +70,35 @@ class DebugLogViewModel(application: Application) : AndroidViewModel(application
     private suspend fun IngestionLog.toRow(): DebugLogRow {
         val raw = withContext(Dispatchers.IO) { smsRepo.getById(rawSmsId) }
         val preview = raw?.msgBody?.lineSequence()?.first()?.take(80).orEmpty()
+        val canRetry = a1Outcome == IngestionLogA1.SKIPPED_A1 ||
+            a2Outcome == IngestionLogA2.SKIPPED_A2
         return DebugLogRow(
             log = this,
             sender = raw?.senderAddress.orEmpty(),
             bodyPreview = preview,
+            canRetry = canRetry,
         )
     }
 
     fun refresh() {
         refresh.value = System.currentTimeMillis()
+    }
+
+    /**
+     * Enqueue a one-shot worker that drives the pipeline on a
+     * single stuck message. The pipeline is naturally idempotent
+     * — a successful retry commits a new transaction, and a
+     * failure just writes a fresh audit log row.
+     */
+    fun retry(rawSmsId: Long) {
+        val request = OneTimeWorkRequestBuilder<DailyParsingWorker>()
+            .setInputData(DailyParsingWorker.retryInputData(rawSmsId))
+            .build()
+        WorkManager.getInstance(app).enqueueUniqueWork(
+            DailyParsingWorker.UNIQUE_RETRY,
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
     }
 
     suspend fun loadDetail(id: Long): DebugLogDetailState {

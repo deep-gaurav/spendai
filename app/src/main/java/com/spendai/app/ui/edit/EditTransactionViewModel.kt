@@ -2,20 +2,24 @@ package com.spendai.app.ui.edit
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.spendai.app.SpendAiApp
 import com.spendai.app.data.local.entity.Account
+import com.spendai.app.data.local.entity.Category
 import com.spendai.app.data.local.entity.Merchant
+import com.spendai.app.data.local.entity.RawSmsMessage
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionDirection
 import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.MerchantRepository
+import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.model.MerchantNormalizer
 import kotlinx.coroutines.Dispatchers
@@ -30,16 +34,18 @@ import kotlinx.coroutines.withContext
 /**
  * Editable view of a [Transaction] for the manual-edit screen.
  *
- * The user can fix anything A2 got wrong: change the merchant
- * (existing or new), change the account, edit the amount, flip the
- * direction, or annotate with a note. Save writes the row back to
- * the DB; delete removes it and the screen pops.
+ * The user can fix anything A2 got wrong: change the title, change
+ * the merchant (existing or new), change the account, change the
+ * category, edit the amount, flip the direction, or annotate with a
+ * note. Save writes the row back to the DB; delete removes it and
+ * the screen pops.
  */
 data class EditTransactionState(
     val loading: Boolean = true,
     val notFound: Boolean = false,
     val transactionId: Long = 0L,
     val amountText: String = "",
+    val title: String = "",
     val currency: String = "INR",
     val direction: TransactionDirection = TransactionDirection.DEBIT,
     val channel: String? = null,
@@ -51,8 +57,11 @@ data class EditTransactionState(
     val merchantId: Long? = null,
     val newMerchantName: String = "",
     val creatingMerchant: Boolean = false,
+    val categoryId: Long? = null,
     val allMerchants: List<Merchant> = emptyList(),
     val allAccounts: List<Account> = emptyList(),
+    val allCategories: List<Category> = emptyList(),
+    val rawSms: RawSmsMessage? = null,
     val saveError: String? = null,
     val saved: Boolean = false,
     val deleted: Boolean = false,
@@ -64,6 +73,8 @@ class EditTransactionViewModel(
     private val transactionRepository: TransactionRepository,
     private val merchantRepository: MerchantRepository,
     private val accountRepository: AccountRepository,
+    private val categoryRepository: CategoryRepository,
+    private val smsRepository: SmsRepository,
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(EditTransactionState())
@@ -88,11 +99,14 @@ class EditTransactionViewModel(
             }
             val merchants = withContext(Dispatchers.IO) { merchantRepository.observeAll().first() }
             val accounts = withContext(Dispatchers.IO) { accountRepository.observeAll().first() }
+            val categories = withContext(Dispatchers.IO) { categoryRepository.observeAll().first() }
+            val rawSms = withContext(Dispatchers.IO) { smsRepository.getById(txn.rawSmsId) }
             _state.update {
                 it.copy(
                     loading = false,
                     notFound = false,
                     amountText = formatAmount(txn.amountPaise),
+                    title = txn.title.orEmpty(),
                     currency = txn.currency,
                     direction = runCatching { TransactionDirection.valueOf(txn.direction) }
                         .getOrDefault(TransactionDirection.DEBIT),
@@ -103,23 +117,50 @@ class EditTransactionViewModel(
                     confidence = txn.confidence,
                     accountId = txn.accountId,
                     merchantId = txn.merchantId,
+                    categoryId = txn.categoryId,
                     allMerchants = merchants,
                     allAccounts = accounts,
+                    allCategories = categories,
+                    rawSms = rawSms,
                 )
             }
         }
     }
 
     fun setAmount(text: String) { _state.update { it.copy(amountText = text, saveError = null) } }
+    fun setTitle(text: String) { _state.update { it.copy(title = text) } }
     fun setCurrency(text: String) { _state.update { it.copy(currency = text) } }
     fun setDirection(d: TransactionDirection) { _state.update { it.copy(direction = d) } }
     fun setChannel(c: String?) { _state.update { it.copy(channel = c) } }
     fun setReferenceNo(text: String) { _state.update { it.copy(referenceNo = text) } }
     fun setNotes(text: String) { _state.update { it.copy(notes = text) } }
     fun setAccount(id: Long) { _state.update { it.copy(accountId = id) } }
-    fun setMerchant(id: Long?) { _state.update { it.copy(merchantId = id, creatingMerchant = false, newMerchantName = "") } }
-    fun startCreatingMerchant() { _state.update { it.copy(creatingMerchant = true, merchantId = null) } }
+    fun setMerchant(id: Long?) {
+        _state.update { it.copy(merchantId = id, creatingMerchant = false, newMerchantName = "") }
+    }
+    fun startCreatingMerchant() {
+        _state.update { it.copy(creatingMerchant = true, merchantId = null) }
+    }
     fun setNewMerchantName(name: String) { _state.update { it.copy(newMerchantName = name) } }
+    fun setCategory(id: Long?) { _state.update { it.copy(categoryId = id) } }
+
+    /**
+     * Create a new [Category] from a freeform name and emoji
+     * (chosen by the user from the category picker dialog). The
+     * new id is committed as the transaction's `categoryId`.
+     */
+    fun addCategory(name: String, emoji: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val cat = withContext(Dispatchers.IO) {
+                categoryRepository.getOrCreate(trimmed, emoji, System.currentTimeMillis())
+            }
+            // Refresh the local list so the picker shows the new row.
+            val categories = withContext(Dispatchers.IO) { categoryRepository.getAllOnce() }
+            _state.update { it.copy(categoryId = cat.id, allCategories = categories) }
+        }
+    }
 
     fun save() {
         val s = _state.value
@@ -133,22 +174,34 @@ class EditTransactionViewModel(
             return
         }
         viewModelScope.launch {
-            val merchantId: Long? = withContext(Dispatchers.IO) {
-                resolveMerchantId(s)
-            }
+            val merchantId: Long? = withContext(Dispatchers.IO) { resolveMerchantId(s) }
+            val categoryId: Long? = withContext(Dispatchers.IO) { resolveCategoryId(s) }
             val current = withContext(Dispatchers.IO) { transactionRepository.getById(s.transactionId) }
                 ?: return@launch
             val updated = current.copy(
                 accountId = s.accountId,
                 merchantId = merchantId,
+                categoryId = categoryId,
                 amountPaise = paise,
                 currency = s.currency.ifBlank { "INR" },
                 direction = s.direction.name,
                 channel = s.channel,
                 referenceNo = s.referenceNo.ifBlank { null },
                 notes = s.notes.ifBlank { null },
+                title = s.title.ifBlank { null },
             )
             withContext(Dispatchers.IO) { transactionRepository.update(updated) }
+            // Mirror the new categoryId onto the merchant so future
+            // transactions with the same merchant inherit it.
+            if (merchantId != null && categoryId != null) {
+                withContext(Dispatchers.IO) {
+                    merchantRepository.getById(merchantId)?.let { m ->
+                        if (m.categoryId == null) {
+                            merchantRepository.update(m.copy(categoryId = categoryId))
+                        }
+                    }
+                }
+            }
             _state.update { it.copy(saved = true, saveError = null) }
         }
     }
@@ -180,6 +233,8 @@ class EditTransactionViewModel(
         return s.merchantId
     }
 
+    private suspend fun resolveCategoryId(s: EditTransactionState): Long? = s.categoryId
+
     companion object {
         const val ARG_TRANSACTION_ID = "transactionId"
 
@@ -197,6 +252,8 @@ class EditTransactionViewModel(
                     transactionRepository = app.transactionRepository,
                     merchantRepository = app.merchantRepository,
                     accountRepository = app.accountRepository,
+                    categoryRepository = app.categoryRepository,
+                    smsRepository = app.smsRepository,
                 ) as T
             }
         }

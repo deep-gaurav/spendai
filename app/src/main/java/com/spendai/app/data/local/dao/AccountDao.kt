@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.spendai.app.data.local.entity.Account
 import kotlinx.coroutines.flow.Flow
 
@@ -14,6 +15,9 @@ interface AccountDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(row: Account): Long
+
+    @Update
+    suspend fun update(row: Account)
 
     @Query("SELECT * FROM account WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): Account?

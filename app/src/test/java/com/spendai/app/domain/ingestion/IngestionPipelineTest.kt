@@ -10,6 +10,7 @@ import com.spendai.app.data.local.entity.SmsStatus
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.IngestionLogRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
@@ -67,6 +68,7 @@ class IngestionPipelineTest {
         val parsedRepo = ParsedSmsRepository(db.parsedSmsDao())
         val sourceRepo = FinancialSourceRepository(db.financialSourceDao())
         val accountRepo = AccountRepository(db.accountDao())
+        val categoryRepo = CategoryRepository(db.categoryDao())
         val merchantRepo = MerchantRepository(db.merchantDao())
         txnRepo = TransactionRepository(db.transactionDao())
         val ingestionLogRepo = IngestionLogRepository(db.ingestionLogDao())
@@ -79,6 +81,7 @@ class IngestionPipelineTest {
             accountRepository = accountRepo,
             merchantRepository = merchantRepo,
             transactionRepository = txnRepo,
+            categoryRepository = categoryRepo,
         )
         pipeline = IngestionPipeline(
             database = db,

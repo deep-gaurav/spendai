@@ -2,6 +2,7 @@ package com.spendai.app.data.local.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -17,13 +18,23 @@ import androidx.room.PrimaryKey
  * index it because UPI-to-UPI transfers are the most common linking
  * case and we want fast lookups.
  *
- * `category` is reserved for a future categorisation agent; nullable in v1.
+ * `categoryId` is a soft FK to [Category]. It is nullable because
+ * some merchants (e.g. one-off P2P transfers) are not categorised.
  */
 @Entity(
     tableName = "merchant",
     indices = [
         Index(value = ["normalizedName"], unique = true),
         Index("vpa"),
+        Index("categoryId"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = Category::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
     ]
 )
 data class Merchant(
@@ -39,8 +50,8 @@ data class Merchant(
     @ColumnInfo(name = "vpa")
     val vpa: String? = null,
 
-    @ColumnInfo(name = "category")
-    val category: String? = null,
+    @ColumnInfo(name = "categoryId")
+    val categoryId: Long? = null,
 
     @ColumnInfo(name = "firstSeenAt")
     val firstSeenAt: Long,

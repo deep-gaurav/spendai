@@ -8,11 +8,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -90,14 +94,22 @@ fun DebugLogScreen(
             verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm),
         ) {
             items(rows, key = { it.log.id }) { row ->
-                DebugLogRowCard(row = row, onClick = { onRowClick(row.log.id) })
+                DebugLogRowCard(
+                    row = row,
+                    onClick = { onRowClick(row.log.id) },
+                    onRetry = { viewModel.retry(row.log.rawSmsId); viewModel.refresh() },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun DebugLogRowCard(row: DebugLogRow, onClick: () -> Unit) {
+private fun DebugLogRowCard(
+    row: DebugLogRow,
+    onClick: () -> Unit,
+    onRetry: () -> Unit,
+) {
     val outcome = outcomeFor(row.log.a1Outcome, row.log.a2Outcome)
     StickerCard {
         Column(
@@ -115,8 +127,18 @@ private fun DebugLogRowCard(row: DebugLogRow, onClick: () -> Unit) {
                     text = row.sender.ifBlank { "(unknown sender)" },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
                 )
                 OutcomeChip(outcome)
+                if (row.canRetry) {
+                    IconButton(onClick = onRetry) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "Retry",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
             if (row.bodyPreview.isNotEmpty()) {
                 Text(

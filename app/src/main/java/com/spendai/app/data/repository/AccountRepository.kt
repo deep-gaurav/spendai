@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 class AccountRepository(private val dao: AccountDao) {
     suspend fun insert(row: Account): Long = dao.insert(row)
+    suspend fun update(row: Account) = dao.update(row)
     suspend fun getById(id: Long): Account? = dao.getById(id)
     suspend fun getBySource(sourceId: Long): List<Account> = dao.getBySource(sourceId)
     suspend fun getAllOnce(): List<Account> = dao.getAllOnce()

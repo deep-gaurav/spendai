@@ -1,5 +1,6 @@
 package com.spendai.app.ui.edit
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.DropdownMenu
@@ -55,6 +57,9 @@ import com.spendai.app.ui.components.BigPrimaryButton
 import com.spendai.app.ui.components.SectionLabel
 import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.theme.Dimens
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val CHANNEL_OPTIONS: List<String?> = listOf(
     null, "UPI", "CARD", "NETBANKING", "NEFT", "IMPS", "WALLET", "ATM",
@@ -70,6 +75,7 @@ fun EditTransactionScreen(
         factory = EditTransactionViewModel.factory(transactionId),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var showCategoryPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.saved, state.deleted) {
         if (state.saved || state.deleted) onBack()
@@ -118,7 +124,12 @@ fun EditTransactionScreen(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd)) {
+                SourceSmsCard(rawSms = state.rawSms)
                 StatusRow(state.status, state.confidence)
+                TitleCard(
+                    title = state.title,
+                    onTitleChange = viewModel::setTitle,
+                )
                 AmountAndDirectionCard(
                     amountText = state.amountText,
                     onAmountChange = viewModel::setAmount,
@@ -126,6 +137,11 @@ fun EditTransactionScreen(
                     onDirectionChange = viewModel::setDirection,
                     currency = state.currency,
                     onCurrencyChange = viewModel::setCurrency,
+                )
+                CategoryCard(
+                    currentCategoryId = state.categoryId,
+                    allCategories = state.allCategories,
+                    onClick = { showCategoryPicker = true },
                 )
                 MerchantCard(
                     allMerchants = state.allMerchants,
@@ -168,6 +184,189 @@ fun EditTransactionScreen(
                 )
                 Spacer(Modifier.size(Dimens.SpaceMd))
             }
+        }
+    }
+
+    if (showCategoryPicker) {
+        CategoryPickerDialog(
+            categories = state.allCategories,
+            currentId = state.categoryId,
+            onPick = { id ->
+                viewModel.setCategory(id)
+                showCategoryPicker = false
+            },
+            onAdd = { name, emoji ->
+                viewModel.addCategory(name, emoji)
+            },
+            onDismiss = { showCategoryPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun CategoryPickerDialog(
+    categories: List<com.spendai.app.data.local.entity.Category>,
+    currentId: Long?,
+    onPick: (Long) -> Unit,
+    onAdd: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var showAdd by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose category") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+                if (categories.isEmpty()) {
+                    Text(
+                        text = "No categories yet. Add one below.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    categories.forEach { cat ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(cat.id) }
+                                .padding(vertical = Dimens.SpaceXs),
+                        ) {
+                            Text(text = cat.emoji, style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.size(Dimens.SpaceSm))
+                            Text(
+                                text = cat.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (cat.id == currentId) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider()
+                TextButton(
+                    onClick = { showAdd = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("+ Add new category") }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+
+    if (showAdd) {
+        AddCategoryDialog(
+            onDismiss = { showAdd = false },
+            onConfirm = { name, emoji ->
+                onAdd(name, emoji)
+                showAdd = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun AddCategoryDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, emoji: String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var emoji by remember { mutableStateOf("\uD83D\uDCB8") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New category") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SectionLabel("Pick an emoji")
+                EmojiGrid(selected = emoji, onSelect = { emoji = it })
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name, emoji) },
+                enabled = name.isNotBlank(),
+            ) { Text("Add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun EmojiGrid(selected: String, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+        EMOJI_PALETTE.chunked(8).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+                row.forEach { e ->
+                    Text(
+                        text = e,
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier
+                            .clickable { onSelect(e) }
+                            .padding(2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceSmsCard(rawSms: com.spendai.app.data.local.entity.RawSmsMessage?) {
+    StickerCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+            SectionLabel("Source SMS")
+            if (rawSms == null) {
+                Text(
+                    text = "Source message not available.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = rawSms.senderAddress.ifBlank { "(unknown sender)" },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = formatFullTimestamp(rawSms.timestamp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = rawSms.msgBody,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TitleCard(
+    title: String,
+    onTitleChange: (String) -> Unit,
+) {
+    StickerCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
+            SectionLabel("Title")
+            OutlinedTextField(
+                value = title,
+                onValueChange = onTitleChange,
+                label = { Text("Title") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -240,6 +439,39 @@ private fun AmountAndDirectionCard(
                         Text(d.name)
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CategoryCard(
+    currentCategoryId: Long?,
+    allCategories: List<com.spendai.app.data.local.entity.Category>,
+    onClick: () -> Unit,
+) {
+    val current = allCategories.firstOrNull { it.id == currentCategoryId }
+    StickerCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
+            SectionLabel("Category")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClick() }
+                    .padding(vertical = Dimens.SpaceXs),
+            ) {
+                Text(
+                    text = current?.emoji ?: "\u2014",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.size(Dimens.SpaceSm))
+                Text(
+                    text = current?.name ?: "Not set",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
     }
@@ -414,4 +646,9 @@ private fun DetailsCard(
             )
         }
     }
+}
+
+private fun formatFullTimestamp(timestamp: Long): String {
+    val fmt = SimpleDateFormat("MMM d, yyyy HH:mm:ss", Locale.getDefault())
+    return fmt.format(Date(timestamp))
 }

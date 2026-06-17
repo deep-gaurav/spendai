@@ -1,5 +1,7 @@
 package com.spendai.app.ui.home
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -29,16 +33,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendai.app.R
+import com.spendai.app.data.local.dao.TransactionDetailsRow
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionDirection
 import com.spendai.app.domain.ingestion.IngestionProgress
+import com.spendai.app.domain.model.TransactionTitle
 import com.spendai.app.inference.InferenceState
 import com.spendai.app.ui.components.BigOutlinedButton
 import com.spendai.app.ui.components.BigPrimaryButton
@@ -49,6 +57,9 @@ import com.spendai.app.ui.ingest.HomeViewModelRangePreset
 import com.spendai.app.ui.ingest.IngestRangeSheet
 import com.spendai.app.ui.setup.SetupViewModel
 import com.spendai.app.ui.theme.Dimens
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,14 +69,13 @@ fun HomeScreen(
     onOpenReview: () -> Unit,
     onOpenTransactions: () -> Unit,
     onOpenDebugLog: () -> Unit = {},
+    onOpenSources: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
     var sheetOpen by remember { mutableStateOf(false) }
 
-    // Warm up the engine as soon as the home is shown, so the user
-    // doesn't wait 10s the first time they tap "Ingest".
     LaunchedEffect(Unit) { viewModel.warmUpEngine() }
 
     Scaffold(
@@ -83,6 +93,14 @@ fun HomeScreen(
                         CartoonIcon(id = R.drawable.ic_more_cartoon, size = 32.dp)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Sources & categories") },
+                            onClick = {
+                                menuOpen = false
+                                onOpenSources()
+                            },
+                            leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
+                        )
                         DropdownMenuItem(
                             text = { Text("Debug log") },
                             onClick = {
@@ -121,11 +139,9 @@ fun HomeScreen(
                     engineLabel = ui.engineLabel,
                     progress = ui.progress,
                     onPickRange = { sheetOpen = true },
+                    onReprocess = viewModel::startReprocess,
                     onCancel = viewModel::cancelIngest,
                 )
-                // No review queue in Phase 3+; A2 auto-commits every
-                // transaction A1 said TRANSACTION. The user can still
-                // fix anything from the transactions list.
                 RecentActivityCard(
                     transactions = ui.recentTransactions,
                     onSeeAll = onOpenTransactions,
@@ -162,6 +178,7 @@ private fun IngestCard(
     engineLabel: String,
     progress: IngestionProgress,
     onPickRange: () -> Unit,
+    onReprocess: () -> Unit,
     onCancel: () -> Unit,
 ) {
     StickerCard {
@@ -189,10 +206,6 @@ private fun IngestCard(
                 progress !is IngestionProgress.Failure &&
                 progress !is IngestionProgress.Cancelled
             if (isRunning) {
-                // Real cancel — invokes IngestionService.cancel() which
-                // calls engine.cancelCurrent() (the native C++ side).
-                // The engine state surfaces an Error so the next run
-                // re-initialises.
                 BigOutlinedButton(
                     onClick = onCancel,
                     text = stringResource(R.string.onboarding_cancel),
@@ -206,16 +219,18 @@ private fun IngestCard(
                     modifier = Modifier.fillMaxWidth(),
                     leadingIcon = { CartoonIcon(R.drawable.ic_arrow_down_cartoon, size = 28.dp) },
                 )
+                Spacer(Modifier.size(Dimens.SpaceXs))
+                BigOutlinedButton(
+                    onClick = onReprocess,
+                    text = "Re-process pending",
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { CartoonIcon(R.drawable.ic_refresh_cartoon, size = 24.dp) },
+                )
             }
         }
     }
 }
 
-/**
- * Small "Engine: …" line so the user can see the model warm-up and
- * the per-token decode progress. Drives off the new
- * [InferenceState.Ready] / [InferenceState.Busy] shapes.
- */
 @Composable
 private fun EngineStatusLine(state: InferenceState, label: String) {
     val tint = when (state) {
@@ -225,10 +240,6 @@ private fun EngineStatusLine(state: InferenceState, label: String) {
         is InferenceState.Loading -> MaterialTheme.colorScheme.primary
         is InferenceState.Uninitialized -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    // Override the label string for the rich variants — the
-    // `label` parameter carries the simpler label from the ViewModel
-    // (for the Loading / Ready / Error cases), but for Busy we
-    // want the per-token snapshot.
     val text = when (state) {
         is InferenceState.Busy -> "Engine: " + state.progress.toLabel()
         is InferenceState.Ready -> "Engine: Ready on ${state.backendLabel}"
@@ -241,15 +252,6 @@ private fun EngineStatusLine(state: InferenceState, label: String) {
     )
 }
 
-/**
- * The progress strip below the engine status. Three sub-states:
- *  - Loading N messages: a label and a thin indeterminate strip.
- *  - Engine initialising: "Loading model on this device…"
- *  - Per-message: a determinate LinearProgressIndicator
- *    (current = messageIndex, total = totalMessages of the day).
- *  - Per-day committing: a label "Day X — committing".
- *  - Terminal: Done / Failure / Cancelled text.
- */
 @Composable
 private fun ProgressBlock(progress: IngestionProgress) {
     when (progress) {
@@ -350,33 +352,6 @@ private fun ProgressBlock(progress: IngestionProgress) {
 }
 
 @Composable
-private fun CalloutCard(
-    icon: Int,
-    text: String,
-    cta: String,
-    onClick: () -> Unit,
-) {
-    StickerCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CartoonIcon(id = icon, size = 36.dp)
-            Spacer(Modifier.size(Dimens.SpaceSm))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            Spacer(Modifier.size(Dimens.SpaceSm))
-            BigOutlinedButton(
-                onClick = onClick,
-                text = cta,
-            )
-        }
-    }
-}
-
-@Composable
 private fun RecentActivityCard(
     transactions: List<Transaction>,
     onSeeAll: () -> Unit,
@@ -426,18 +401,28 @@ private fun RecentRow(txn: Transaction) {
         TransactionDirection.CREDIT.name -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val direction = when (txn.direction) {
+        TransactionDirection.CREDIT.name -> com.spendai.app.data.local.entity.TransactionDirection.CREDIT
+        else -> com.spendai.app.data.local.entity.TransactionDirection.DEBIT
+    }
+    val title = TransactionTitle.derive(
+        merchantName = null, // we don't have merchant on Transaction directly
+        categoryName = null,
+        direction = direction,
+        channel = txn.channel,
+    )
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = txn.channel ?: "—",
+                text = title,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "#${txn.id} · ${txn.status}",
+                text = formatTimeOfDay(txn.txnAtMillis),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -457,4 +442,10 @@ private fun formatAmount(paise: Long): String {
     val rupees = abs / 100
     val p = abs % 100
     return "${"%,d".format(rupees)}.${p.toString().padStart(2, '0')}"
+}
+
+private fun formatTimeOfDay(txnAtMillis: Long): String {
+    val zone = ZoneId.systemDefault()
+    val time = Instant.ofEpochMilli(txnAtMillis).atZone(zone).toLocalTime()
+    return time.format(DateTimeFormatter.ofPattern("HH:mm"))
 }

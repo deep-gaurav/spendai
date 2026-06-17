@@ -16,6 +16,19 @@ import kotlinx.serialization.json.JsonClassDiscriminator
  * resolution. A2 always commits the transaction when A1 said
  * TRANSACTION — the confidence is preserved on the [com.spendai.app.data.local.entity.Transaction]
  * row for the edit UI to display.
+ *
+ * ## Title and category
+ *
+ * A2 is also asked to emit a freeform `title` and a `categoryName` /
+ * `categoryEmoji` pair. Categories are first-class entities: the
+ * resolver looks the name up by its normalised form and creates a
+ * new [com.spendai.app.data.local.entity.Category] row on first
+ * sight. The `title` is preserved on the [com.spendai.app.data.local.entity.Transaction]
+ * row verbatim; the [com.spendai.app.domain.model.TransactionTitle]
+ * helper is the render-time fallback for when the LLM omits it.
+ *
+ * All three are optional — the contract tolerates a model that
+ * decides not to commit a category for borderline cases.
  */
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
@@ -25,6 +38,9 @@ data class A2Contract(
     val account: AccountChoice,
     val merchant: MerchantChoice,
     val a2Confidence: Float = 0f,
+    val title: String? = null,
+    val categoryName: String? = null,
+    val categoryEmoji: String? = null,
 )
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)

@@ -23,6 +23,13 @@ class SmsRepository(private val dao: SmsDao) {
             SmsStatus.UNPARSED, startMillis, endMillis,
         )
 
+    /**
+     * Every `raw_sms` row that does not have a corresponding
+     * `spend_transaction`. This is the input to the
+     * `IngestionPipeline.runPending` path.
+     */
+    suspend fun pendingNotCommitted(): List<RawSmsMessage> = dao.getPendingNotCommitted()
+
     fun observeUnparsed(): Flow<List<RawSmsMessage>> =
         dao.observeByStatus(SmsStatus.UNPARSED)
 

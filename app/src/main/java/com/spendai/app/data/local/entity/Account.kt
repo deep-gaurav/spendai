@@ -15,6 +15,10 @@ import androidx.room.PrimaryKey
  *
  * `maskedNumber` is the human-visible form (e.g. "XXXX1234" or
  * "UPI:user@okhdfcbank"). We never store the full PAN or account number.
+ *
+ * `colorHex` is the user-assigned accent color (e.g. "#FF6B6B"). Null
+ * means "use the default theme color" — the UI layer decides. Stored
+ * as text so the palette can be expanded without a migration.
  */
 @Entity(
     tableName = "account",
@@ -52,6 +56,9 @@ data class Account(
 
     @ColumnInfo(name = "holderName")
     val holderName: String? = null,
+
+    @ColumnInfo(name = "colorHex")
+    val colorHex: String? = null,
 
     @ColumnInfo(name = "createdAt")
     val createdAt: Long,

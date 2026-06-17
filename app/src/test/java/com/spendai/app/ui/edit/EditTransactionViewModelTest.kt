@@ -15,6 +15,7 @@ import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionDirection
 import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
@@ -56,6 +57,8 @@ class EditTransactionViewModelTest {
     private lateinit var txnRepo: TransactionRepository
     private lateinit var merchantRepo: MerchantRepository
     private lateinit var accountRepo: AccountRepository
+    private lateinit var categoryRepo: CategoryRepository
+    private lateinit var smsRepo: SmsRepository
     private var txnId: Long = 0L
     private var oldMerchantId: Long = 0L
     private var accountId: Long = 0L
@@ -70,9 +73,10 @@ class EditTransactionViewModelTest {
         txnRepo = TransactionRepository(db.transactionDao())
         merchantRepo = MerchantRepository(db.merchantDao())
         accountRepo = AccountRepository(db.accountDao())
+        categoryRepo = CategoryRepository(db.categoryDao())
+        smsRepo = SmsRepository(db.smsDao())
 
         // Seed: 1 source + 1 account + 2 merchants + 1 transaction.
-        val smsRepo = SmsRepository(db.smsDao())
         val parsedRepo = ParsedSmsRepository(db.parsedSmsDao())
         runBlocking {
             val now = System.currentTimeMillis()
@@ -150,6 +154,8 @@ class EditTransactionViewModelTest {
             transactionRepository = txnRepo,
             merchantRepository = merchantRepo,
             accountRepository = accountRepo,
+            categoryRepository = categoryRepo,
+            smsRepository = smsRepo,
         )
     }
 

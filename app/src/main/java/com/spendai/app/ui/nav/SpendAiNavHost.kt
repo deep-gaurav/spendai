@@ -28,23 +28,18 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.spendai.app.R
 import com.spendai.app.ui.download.DownloadScreen
+import com.spendai.app.ui.edit.EditTransactionScreen
 import com.spendai.app.ui.home.HomeScreen
 import com.spendai.app.ui.insights.InsightsScreen
 import com.spendai.app.ui.permissions.PermissionsScreen
 import com.spendai.app.ui.review.ReviewScreen
 import com.spendai.app.ui.setup.SetupViewModel
+import com.spendai.app.ui.sources.SourcesScreen
 import com.spendai.app.ui.test.TestScreen
 import com.spendai.app.ui.transactions.TransactionsScreen
-import com.spendai.app.ui.edit.EditTransactionScreen
 import com.spendai.app.ui.debug.DebugLogScreen
 import com.spendai.app.ui.debug.DebugLogDetailScreen
 
-/**
- * Onboarding routes are the cold-start destinations and the only
- * way to reach the bottom-nav home. Once [SetupViewModel.state.isComplete]
- * is true the host renders the bottom-nav scaffold with Home /
- * Transactions / Insights as the three top-level destinations.
- */
 object Routes {
     const val PERMISSIONS = "permissions"
     const val DOWNLOAD = "download"
@@ -53,6 +48,7 @@ object Routes {
     const val TRANSACTIONS = "transactions"
     const val INSIGHTS = "insights"
     const val REVIEW = "review"
+    const val SOURCES = "sources"
     const val DEBUG_LOG = "debugLog"
     const val DEBUG_LOG_DETAIL = "debugLogDetail/{id}"
     fun debugLogDetail(id: Long) = "debugLogDetail/$id"
@@ -87,15 +83,11 @@ fun SpendAiNavHost(
         return
     }
 
-    // Bottom-nav scaffold for the post-onboarding app.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: Routes.HOME
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            // Show the bottom bar only for the top-level destinations
-            // (Home / Transactions / Insights). The Review screen
-            // pushes on top and hides the bar via Scaffold internals.
             val topLevel = bottomDestinations.any { it.route == currentRoute }
             if (topLevel) {
                 NavigationBar(
@@ -147,6 +139,7 @@ fun SpendAiNavHost(
                     onOpenReview = { navController.navigate(Routes.REVIEW) },
                     onOpenTransactions = { navController.navigate(Routes.TRANSACTIONS) },
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
+                    onOpenSources = { navController.navigate(Routes.SOURCES) },
                 )
             }
             composable(Routes.TRANSACTIONS) {
@@ -167,8 +160,9 @@ fun SpendAiNavHost(
                 )
             }
             composable(Routes.INSIGHTS) { InsightsScreen() }
-            composable(Routes.REVIEW) {
-                ReviewScreen()
+            composable(Routes.REVIEW) { ReviewScreen() }
+            composable(Routes.SOURCES) {
+                SourcesScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.DEBUG_LOG) {
                 DebugLogScreen(

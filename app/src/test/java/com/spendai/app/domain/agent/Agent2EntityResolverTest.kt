@@ -8,6 +8,7 @@ import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.ParsedSmsKind
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.SmsRepository
@@ -60,6 +61,7 @@ class Agent2EntityResolverTest {
             .build()
         val sourceRepo = FinancialSourceRepository(db.financialSourceDao())
         val accountRepo = AccountRepository(db.accountDao())
+        val categoryRepo = CategoryRepository(db.categoryDao())
         merchantRepo = MerchantRepository(db.merchantDao())
         txnRepo = TransactionRepository(db.transactionDao())
         val smsRepo = SmsRepository(db.smsDao())
@@ -71,6 +73,7 @@ class Agent2EntityResolverTest {
             accountRepository = accountRepo,
             merchantRepository = merchantRepo,
             transactionRepository = txnRepo,
+            categoryRepository = categoryRepo,
         )
         val now = System.currentTimeMillis()
         rawSmsId = kotlinx.coroutines.runBlocking {
@@ -146,7 +149,7 @@ class Agent2EntityResolverTest {
             engine.generatePredictionTracking(capture(promptSlot), any<String>(), anyNullable())
         } returns flowOf(a2ContractAllNew)
 
-        resolver.resolveAndCommit(parsedSms())
+        resolver.resolveAndCommit(parsedSms(), smsTimestampMillis = 1_700_000_000_000L)
 
         coVerify(exactly = 1) {
             engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable())
@@ -179,7 +182,7 @@ class Agent2EntityResolverTest {
         }""".trimIndent()
         coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable()) } returns flowOf(a2Resp)
 
-        val outcome = resolver.resolveAndCommit(parsedSms())
+        val outcome = resolver.resolveAndCommit(parsedSms(), smsTimestampMillis = 1_700_000_000_000L)
         val txnId = outcome.transactionId
         val txn = txnRepo.getById(txnId)
         assertNotNull(txn)
@@ -203,7 +206,7 @@ class Agent2EntityResolverTest {
         }""".trimIndent()
         coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable()) } returns flowOf(a2Resp)
 
-        val outcome = resolver.resolveAndCommit(parsedSms())
+        val outcome = resolver.resolveAndCommit(parsedSms(), smsTimestampMillis = 1_700_000_000_000L)
         val txnId = outcome.transactionId
         val txn = txnRepo.getById(txnId)
         assertNotNull(txn)
@@ -226,7 +229,7 @@ class Agent2EntityResolverTest {
         }""".trimIndent()
         coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable()) } returns flowOf(a2Resp)
 
-        val outcome = resolver.resolveAndCommit(parsedSms())
+        val outcome = resolver.resolveAndCommit(parsedSms(), smsTimestampMillis = 1_700_000_000_000L)
         val txnId = outcome.transactionId
         val txn = txnRepo.getById(txnId)
         assertNotNull(txn)
@@ -246,7 +249,7 @@ class Agent2EntityResolverTest {
         coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable()) } returns flowOf(a2Resp)
 
         try {
-            resolver.resolveAndCommit(parsedSms())
+            resolver.resolveAndCommit(parsedSms(), smsTimestampMillis = 1_700_000_000_000L)
             org.junit.Assert.fail("expected IllegalArgumentException")
         } catch (_: IllegalArgumentException) {
             // expected

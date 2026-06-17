@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 class MerchantRepository(private val dao: MerchantDao) {
     suspend fun insert(row: Merchant): Long = dao.insertIgnore(row)
+    suspend fun update(row: Merchant) = dao.update(row)
     suspend fun getById(id: Long): Merchant? = dao.getById(id)
     suspend fun findByNormalizedName(name: String): Merchant? = dao.findByNormalizedName(name)
     suspend fun findByVpa(vpa: String): Merchant? = dao.findByVpa(vpa)

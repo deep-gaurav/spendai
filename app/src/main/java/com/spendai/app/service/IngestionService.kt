@@ -43,13 +43,13 @@ import kotlinx.coroutines.launch
  *
  * Before [startForeground] the service:
  *  1. Checks `READ_SMS`. If denied, emits
- *     `IngestionProgress.Failure("READ_SMS permission denied…")` and
+ *     `IngestionProgress.Failure("READ_SMS permission denied...")` and
  *     stops — the OS provider returns null rows when the caller
  *     can't read SMS, which would silently produce a 0-message run.
  *  2. Initialises the [com.spendai.app.inference.GemmaInferenceEngine]
  *     if it isn't already READY. Engine load is up to 10s on first
  *     run; we surface this on the notification so the user sees
- *     "Engine: Loading on NPU…" while it warms up.
+ *     "Engine: Loading on NPU..." while it warms up.
  *
  * ## Progress surface
  *
@@ -58,6 +58,25 @@ import kotlinx.coroutines.launch
  * foreground notification. The home's [com.spendai.app.ui.home.HomeViewModel]
  * collects the StateFlow; the notification is the user's
  * out-of-app feedback channel.
+ *
+ * ## Reliability (v0.6)
+ *
+ *  - `onStartCommand` returns `START_REDELIVER_INTENT` so the OS
+ *    restarts the service after a kill. The pipeline is naturally
+ *    idempotent because `raw_sms.status` advances on every commit,
+ *    so a restart resumes the remaining UNPARSED rows without
+ *    re-doing finished work.
+ *  - The wake lock is acquired with no timeout and released
+ *    manually when the pipeline finishes. The 15-minute cap that
+ *    the previous version used was too short for a 30-day
+ *    historical run; the OS releases the lock automatically if
+ *    the process dies.
+ *  - The [ACTION_REPROCESS] intent action routes through
+ *    [IngestionPipeline.runPending] to re-process any
+ *    raw_sms row that does not have a corresponding
+ *    `spend_transaction`. This is the recovery path for messages
+ *    that ended up in a stuck state because the previous run was
+ *    killed by Doze / OOM.
  */
 class IngestionService : Service() {
 
@@ -70,21 +89,17 @@ class IngestionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_CANCEL) {
             runJob?.cancel()
-            // Cancel the in-flight inference on the C++ side as well.
-            // Coroutine cancellation alone does not reach the native
-            // decode thread — the model would keep running until the
-            // pipeline caught the eventual LiteRtLmJniException.
-            // conversation.cancelProcess() is the real cancel.
             val app = applicationContext as SpendAiApp
             runCatching { kotlinx.coroutines.runBlocking { app.gemmaInferenceEngine.cancelCurrent() } }
                 .onFailure { Log.w(TAG, "engine.cancelCurrent() failed", it) }
-            // Reset to Idle, not Cancelled. Idle is the clean re-ingestable
-            // sticky state; Cancelled would still render the "Cancelled"
-            // line on the home card instead of the "Pick a range" CTA.
             _progress.value = IngestionProgress.Idle
             stopSelfSafely()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_REPROCESS) {
+            return startReprocess()
+        }
+
         val start = intent?.getLongExtra(EXTRA_START_MILLIS, 0L) ?: 0L
         val end = intent?.getLongExtra(EXTRA_END_MILLIS, 0L) ?: 0L
         val range = if (start > 0L && end > start) DateRange(start, end) else DateRange.unbounded()
@@ -92,7 +107,12 @@ class IngestionService : Service() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SpendAi::IngestionWakeLock").apply {
             setReferenceCounted(false)
-            acquire(15 * 60 * 1000L) // 15 mins safeguard
+            // No timeout — the lock is released by stopSelfSafely()
+            // when the pipeline finishes (success, failure, or
+            // cancel). The OS releases it automatically if the
+            // process dies. The 15-minute cap from the previous
+            // version was too short for a 30-day historical run.
+            acquire()
         }
 
         _progress.value = IngestionProgress.LoadingFromSource(0)
@@ -142,7 +162,58 @@ class IngestionService : Service() {
             Log.d(TAG, "Pipeline finished: $outcome")
             stopSelfSafely()
         }
-        return START_NOT_STICKY
+        // Redeliver the intent on a system-initiated restart so the
+        // pipeline resumes the same range after a kill. The pipeline
+        // is naturally idempotent because raw_sms.status advances on
+        // every commit, so a restart picks up where it left off.
+        return START_REDELIVER_INTENT
+    }
+
+    /**
+     * Start the "Re-process pending" pipeline. Bypasses the date
+     * range and the permission check (it doesn't need the SMS
+     * provider — the rows are already in the DB).
+     */
+    private fun startReprocess(): Int {
+        Log.d(TAG, "ACTION_REPROCESS received")
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SpendAi::IngestionWakeLock").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+
+        _progress.value = IngestionProgress.LoadingFromSource(0)
+        ensureNotificationChannel()
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification("Re-processing pending…", "Starting"),
+        )
+
+        runJob = scope.launch {
+            val app = applicationContext as SpendAiApp
+            try {
+                if (app.gemmaInferenceEngine.state.value !is InferenceState.Ready) {
+                    publishProgress(IngestionProgress.EngineInitialising(labelFor(app.gemmaInferenceEngine.state.value)))
+                    app.gemmaInferenceEngine.initialize(applicationContext)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Engine init failed during reprocess", t)
+                publishProgress(
+                    IngestionProgress.Failure(
+                        "Engine failed to initialise: ${t.message ?: t.javaClass.simpleName}"
+                    )
+                )
+                stopSelfSafely()
+                return@launch
+            }
+
+            val outcome = app.ingestionPipeline.runPending(
+                emit = { progress -> publishProgress(progress) },
+            )
+            Log.d(TAG, "runPending finished: $outcome")
+            stopSelfSafely()
+        }
+        return START_REDELIVER_INTENT
     }
 
     private suspend fun publishProgress(progress: IngestionProgress) {
@@ -243,6 +314,7 @@ class IngestionService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "spendai.ingest"
         const val ACTION_CANCEL = "com.spendai.app.action.INGEST_CANCEL"
+        const val ACTION_REPROCESS = "com.spendai.app.action.INGEST_REPROCESS"
         const val EXTRA_START_MILLIS = "spendai.extra.START_MILLIS"
         const val EXTRA_END_MILLIS = "spendai.extra.END_MILLIS"
 
@@ -253,6 +325,19 @@ class IngestionService : Service() {
             val intent = Intent(context, IngestionService::class.java).apply {
                 putExtra(EXTRA_START_MILLIS, range.startMillis)
                 putExtra(EXTRA_END_MILLIS, range.endMillis)
+            }
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        /**
+         * Start the "Re-process pending" pipeline. The service
+         * ignores the date range and re-runs A1+A2 on any
+         * raw_sms row that does not have a corresponding
+         * `spend_transaction`.
+         */
+        fun startReprocess(context: Context) {
+            val intent = Intent(context, IngestionService::class.java).apply {
+                action = ACTION_REPROCESS
             }
             ContextCompat.startForegroundService(context, intent)
         }

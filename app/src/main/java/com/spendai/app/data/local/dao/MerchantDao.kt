@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.spendai.app.data.local.entity.Merchant
 import kotlinx.coroutines.flow.Flow
 
@@ -14,6 +15,9 @@ interface MerchantDao {
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(row: Merchant): Long
+
+    @Update
+    suspend fun update(row: Merchant)
 
     @Query("SELECT * FROM merchant WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): Merchant?

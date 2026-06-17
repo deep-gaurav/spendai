@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.spendai.app.data.local.AppDatabase
 import com.spendai.app.data.repository.AccountRepository
+import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
@@ -69,6 +70,9 @@ class SpendAiApp : Application() {
     val merchantRepository: MerchantRepository by lazy {
         MerchantRepository(database.merchantDao())
     }
+    val categoryRepository: CategoryRepository by lazy {
+        CategoryRepository(database.categoryDao())
+    }
     val transactionRepository: TransactionRepository by lazy {
         TransactionRepository(database.transactionDao())
     }
@@ -94,6 +98,7 @@ class SpendAiApp : Application() {
             sourceRepository = financialSourceRepository,
             accountRepository = accountRepository,
             merchantRepository = merchantRepository,
+            categoryRepository = categoryRepository,
             transactionRepository = transactionRepository,
         )
     }
