@@ -31,6 +31,7 @@ import com.spendai.app.ui.download.DownloadScreen
 import com.spendai.app.ui.edit.EditTransactionScreen
 import com.spendai.app.ui.home.HomeScreen
 import com.spendai.app.ui.insights.InsightsScreen
+import com.spendai.app.ui.insights.agent.AgenticInsightsScreen
 import com.spendai.app.ui.permissions.PermissionsScreen
 import com.spendai.app.ui.review.ReviewScreen
 import com.spendai.app.ui.setup.SetupViewModel
@@ -47,6 +48,7 @@ object Routes {
     const val HOME = "home"
     const val TRANSACTIONS = "transactions"
     const val INSIGHTS = "insights"
+    const val INSIGHTS_AGENT = "insights/agent"
     const val REVIEW = "review"
     const val SOURCES = "sources"
     const val DEBUG_LOG = "debugLog"
@@ -159,7 +161,18 @@ fun SpendAiNavHost(
                     onBack = { navController.popBackStack() },
                 )
             }
-            composable(Routes.INSIGHTS) { InsightsScreen() }
+            composable(Routes.INSIGHTS) {
+                InsightsScreen(
+                    onOpenAgentic = {
+                        navController.navigate(Routes.INSIGHTS_AGENT)
+                    },
+                )
+            }
+            composable(Routes.INSIGHTS_AGENT) {
+                AgenticInsightsScreen(
+                    onBack = { navController.popBackStack() },
+                )
+            }
             composable(Routes.REVIEW) { ReviewScreen() }
             composable(Routes.SOURCES) {
                 SourcesScreen(onBack = { navController.popBackStack() })

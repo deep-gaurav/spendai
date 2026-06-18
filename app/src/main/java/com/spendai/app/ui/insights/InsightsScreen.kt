@@ -1,10 +1,14 @@
 package com.spendai.app.ui.insights
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +54,7 @@ import java.time.ZoneId
  */
 @Composable
 fun InsightsScreen(
+    onOpenAgentic: () -> Unit = {},
     viewModel: InsightsViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -62,7 +67,7 @@ fun InsightsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd),
     ) {
-        Header()
+        Header(onOpenAgentic = onOpenAgentic)
         InsightsWindowSelector(
             selected = ui.window,
             onSelected = viewModel::setWindow,
@@ -92,7 +97,7 @@ fun InsightsScreen(
 }
 
 @Composable
-private fun Header() {
+private fun Header(onOpenAgentic: () -> Unit) {
     Column(
         verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
         modifier = Modifier.fillMaxWidth(),
@@ -114,6 +119,45 @@ private fun Header() {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        AskAiPill(onClick = onOpenAgentic)
+    }
+}
+
+/**
+ * "Ask AI" entry pill. Lives just below the header copy so
+ * the user sees it without scrolling. Renders as a sticker
+ * button: ink border, offset shadow, primary tint.
+ */
+@Composable
+private fun AskAiPill(onClick: () -> Unit) {
+    val outline = MaterialTheme.colorScheme.outline
+    val primary = MaterialTheme.colorScheme.primary
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
+    val shape = MaterialTheme.shapes.medium
+    val shadow = Dimens.ShadowSmall
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .padding(end = shadow, bottom = shadow),
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .matchParentSize()
+                .offset(shadow, shadow)
+                .background(outline, shape),
+        )
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .background(primary, shape)
+                .border(Dimens.BorderThin, outline, shape)
+                .clickable(onClick = onClick)
+                .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
+        ) {
+            Text(
+                text = stringResource(R.string.insights_ask_ai),
+                style = MaterialTheme.typography.titleMedium,
+                color = onPrimary,
+            )
+        }
     }
 }
 

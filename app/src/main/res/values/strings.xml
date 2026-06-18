@@ -147,4 +147,16 @@
     <string name="insights_empty_title">Nothing to plot yet</string>
     <string name="insights_empty_subtitle">Ingest a few SMS messages and your insights will land here.</string>
 
+    <!-- Insights: agentic (chat) screen -->
+    <string name="insights_ask_ai">Ask AI</string>
+    <string name="agentic_title">Ask AI</string>
+    <string name="agentic_subtitle">Multi-turn chat with the on-device analyst</string>
+    <string name="agentic_status_idle">Ready</string>
+    <string name="agentic_status_thinking">Thinking…</string>
+    <string name="agentic_status_running_tool">Querying the database…</string>
+    <string name="agentic_empty_title">Ask the on-device analyst</string>
+    <string name="agentic_empty_subtitle">Try "How much did I spend on food last month?" or "Show me a breakdown of where my money went this week." The model only sees your local data.</string>
+    <string name="agentic_stop">Stop</string>
+    <string name="agentic_clear">Clear</string>
+
 </resources>

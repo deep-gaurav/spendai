@@ -134,6 +134,34 @@ open class SpendAiApp : Application() {
         )
     }
 
+    /**
+     * Read-only SQL gateway the agentic insights flow uses to
+     * answer "show me my spending" questions. Validates the
+     * model-supplied SQL (allowlisted tables, no write side
+     * effects, capped LIMIT) before running it against the
+     * user's database.
+     */
+    val sqlExecutor: com.spendai.app.domain.agent.insights.SqlExecutor by lazy {
+        com.spendai.app.domain.agent.insights.SqlExecutor(database)
+    }
+
+    /**
+     * Multi-turn orchestrator for the agentic insights chat.
+     * Owns the conversation history and the ReAct loop; the
+     * ViewModel layer is a thin pass-through. Lives for the
+     * lifetime of the application so a rotation does not drop
+     * the in-flight conversation.
+     */
+    val agenticInsightsAgent: com.spendai.app.domain.agent.insights.AgenticInsightsAgent by lazy {
+        com.spendai.app.domain.agent.insights.AgenticInsightsAgent(
+            engine = gemmaInferenceEngine,
+            sqlExecutor = sqlExecutor,
+            verifier = com.spendai.app.domain.agent.insights.AnswerVerifier(
+                engine = gemmaInferenceEngine,
+            ),
+        )
+    }
+
     override open fun onCreate() {
         super.onCreate()
         Log.i(TAG, "SpendAI cold start")
