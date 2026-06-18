@@ -10,6 +10,8 @@ import com.spendai.app.data.local.dao.AccountDao
 import com.spendai.app.data.local.dao.CategoryDao
 import com.spendai.app.data.local.dao.FinancialSourceDao
 import com.spendai.app.data.local.dao.IngestionLogDao
+import com.spendai.app.data.local.dao.LinkedSmsDao
+import com.spendai.app.data.local.dao.ManualCorrectionDao
 import com.spendai.app.data.local.dao.MerchantDao
 import com.spendai.app.data.local.dao.ParsedSmsDao
 import com.spendai.app.data.local.dao.PendingReviewDao
@@ -20,6 +22,7 @@ import com.spendai.app.data.local.entity.Account
 import com.spendai.app.data.local.entity.Category
 import com.spendai.app.data.local.entity.FinancialSource
 import com.spendai.app.data.local.entity.IngestionLog
+import com.spendai.app.data.local.entity.ManualCorrection
 import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.PendingReview
@@ -29,6 +32,7 @@ import com.spendai.app.data.local.entity.TransactionLink
 import com.spendai.app.data.local.migrations.MIGRATION_1_2
 import com.spendai.app.data.local.migrations.MIGRATION_2_3
 import com.spendai.app.data.local.migrations.MIGRATION_5_6
+import com.spendai.app.data.local.migrations.MIGRATION_6_7
 
 /**
  * The single Room database for SpendAI.
@@ -70,8 +74,9 @@ import com.spendai.app.data.local.migrations.MIGRATION_5_6
         PendingReview::class,
         IngestionLog::class,
         Category::class,
+        ManualCorrection::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -86,13 +91,15 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionLinkDao(): TransactionLinkDao
     abstract fun pendingReviewDao(): PendingReviewDao
     abstract fun ingestionLogDao(): IngestionLogDao
+    abstract fun manualCorrectionDao(): ManualCorrectionDao
+    abstract fun linkedSmsDao(): LinkedSmsDao
     abstract fun categoryDao(): CategoryDao
 
     companion object {
         private const val DB_NAME = "spendai.db"
 
         /** All known migrations in order. v3 → v5 is destructive. */
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_5_6)
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_5_6, MIGRATION_6_7)
 
         @Volatile
         private var instance: AppDatabase? = null

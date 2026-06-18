@@ -320,3 +320,43 @@ val MIGRATION_5_6: Migration = object : Migration(5, 6) {
         )
     }
 }
+
+/**
+ * v6 -> v7: manual corrections + audit-log user prompt.
+ *
+ * Adds two things:
+ *
+ *  - New ManualCorrection table. Persists the user-typed
+ *    instructions that override A3's default decision; the most
+ *    recent 15 rows are injected into the A3 system prompt on every
+ *    subsequent run so the model stops making the same mistake the
+ *    user had to correct. FK on rawSmsId is ON DELETE CASCADE so
+ *    deleting a raw_sms row cleans up its corrections.
+ *  - New ingestion_log.userPrompt column (nullable TEXT). Captures
+ *    the override prompt the user typed on a reprompt run so the
+ *    debug log can show why A3 did that alongside the model
+ *    response. Default NULL on add so old rows stay unannotated.
+ */
+val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `manual_correction` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`rawSmsId` INTEGER NOT NULL, " +
+                "`linkedSmsIds` TEXT NOT NULL, " +
+                "`userPrompt` TEXT NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`rawSmsId`) REFERENCES `raw_sms`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_manual_correction_rawSmsId` " +
+                "ON `manual_correction` (`rawSmsId`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_manual_correction_createdAt` " +
+                "ON `manual_correction` (`createdAt`)"
+        )
+        db.execSQL("ALTER TABLE `ingestion_log` ADD COLUMN `userPrompt` TEXT")
+    }
+}

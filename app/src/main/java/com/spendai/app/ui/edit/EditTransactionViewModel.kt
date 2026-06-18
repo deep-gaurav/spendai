@@ -19,8 +19,12 @@ import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
 import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.MerchantRepository
+import com.spendai.app.data.local.dao.LinkedSmsDao
+import com.spendai.app.data.local.dao.LinkedSmsRow
+import com.spendai.app.data.repository.ManualCorrectionRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionRepository
+import com.spendai.app.domain.ingestion.IngestionPipeline
 import com.spendai.app.domain.model.MerchantNormalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,9 +66,22 @@ data class EditTransactionState(
     val allAccounts: List<Account> = emptyList(),
     val allCategories: List<Category> = emptyList(),
     val rawSms: RawSmsMessage? = null,
+    val linkedSms: List<LinkedSmsRow> = emptyList(),
     val saveError: String? = null,
     val saved: Boolean = false,
     val deleted: Boolean = false,
+    val reprompt: RepromptState = RepromptState(),
+)
+
+/**
+ * UI state for the reprompt flow. Lives on the edit screen so
+ * the dialog can disable itself while the pipeline is running and
+ * surface a brief summary when it finishes.
+ */
+data class RepromptState(
+    val running: Boolean = false,
+    val lastResult: String? = null,
+    val lastError: String? = null,
 )
 
 class EditTransactionViewModel(
@@ -75,6 +92,10 @@ class EditTransactionViewModel(
     private val accountRepository: AccountRepository,
     private val categoryRepository: CategoryRepository,
     private val smsRepository: SmsRepository,
+    private val linkedSmsDao: LinkedSmsDao,
+    private val manualCorrectionRepository: ManualCorrectionRepository?,
+    private val ingestionPipeline: IngestionPipeline?,
+    private val gemmaInferenceEngine: com.spendai.app.inference.GemmaInferenceEngine?,
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(EditTransactionState())
@@ -101,6 +122,7 @@ class EditTransactionViewModel(
             val accounts = withContext(Dispatchers.IO) { accountRepository.observeAll().first() }
             val categories = withContext(Dispatchers.IO) { categoryRepository.observeAll().first() }
             val rawSms = withContext(Dispatchers.IO) { smsRepository.getById(txn.rawSmsId) }
+            val linkedSms = withContext(Dispatchers.IO) { loadLinkedSms(txn) }
             _state.update {
                 it.copy(
                     loading = false,
@@ -122,9 +144,18 @@ class EditTransactionViewModel(
                     allAccounts = accounts,
                     allCategories = categories,
                     rawSms = rawSms,
+                    linkedSms = linkedSms,
                 )
             }
         }
+    }
+
+    private suspend fun loadLinkedSms(txn: Transaction): List<LinkedSmsRow> {
+        // Source row first so the UI can render it as the first card.
+        val source = linkedSmsDao.getSourceSms(txn.rawSmsId, txn.id)
+        val linked = linkedSmsDao.getLinkedSms(txn.id)
+        val duplicates = linkedSmsDao.getDuplicatesOf(txn.id)
+        return listOfNotNull(source) + linked + duplicates
     }
 
     fun setAmount(text: String) { _state.update { it.copy(amountText = text, saveError = null) } }
@@ -206,6 +237,93 @@ class EditTransactionViewModel(
         }
     }
 
+    /**
+     * Run the A3 reprompt path: persist a [com.spendai.app.data.local.entity.ManualCorrection]
+     * with the user-typed prompt, then re-run A3 on every raw_sms id
+     * in the linked-SMS view. The pipeline is idempotent: a successful
+     * re-run will either keep the existing transaction, modify it, or
+     * delete it via the `modifications` block of the A3 contract.
+     */
+    fun reprompt(userPrompt: String) {
+        val s = _state.value
+        val prompt = userPrompt.trim()
+        if (prompt.isEmpty()) {
+            _state.update { it.copy(reprompt = RepromptState(lastError = "Prompt is empty")) }
+            return
+        }
+        if (s.transactionId <= 0L || s.rawSms == null) {
+            _state.update { it.copy(reprompt = RepromptState(lastError = "Transaction not loaded")) }
+            return
+        }
+        // Collect every raw_sms id we are about to re-run on. The
+        // source is the one the user opened; the duplicates and
+        // linked rows are the other SMSes the user grouped with it.
+        val ids = buildList {
+            add(s.rawSms.id)
+            s.linkedSms.forEach { row ->
+                // Skip the source row (already added) and any rows we
+                // already pulled in to keep the override focused.
+                if (row.id != s.rawSms.id) add(row.id)
+            }
+        }
+        _state.update { it.copy(reprompt = RepromptState(running = true)) }
+        viewModelScope.launch {
+            val outcome = runCatching {
+                // Lazy-init the engine if it isn't already ready;
+                // the same pattern the worker uses.
+                val engine = gemmaInferenceEngine
+                    ?: error("Engine not available")
+                val pipeline = ingestionPipeline
+                    ?: error("Pipeline not available")
+                if (engine.state.value !is com.spendai.app.inference.InferenceState.Ready) {
+                    engine.initialize(getApplication())
+                }
+                pipeline.runWithReprompt(
+                    rawSmsIds = ids,
+                    userPrompt = prompt,
+                    emit = { /* fire-and-forget for the dialog */ },
+                )
+            }
+            val newState = outcome.fold(
+                onSuccess = { result ->
+                    val summary = when (result) {
+                        is com.spendai.app.domain.ingestion.IngestionOutcome.Success ->
+                            "${result.summary.committedTransactions} committed, " +
+                                "${result.summary.ignored} ignored, " +
+                                "${result.summary.skippedByA2} skipped"
+                        is com.spendai.app.domain.ingestion.IngestionOutcome.Failure ->
+                            null
+                    }
+                    if (summary != null) {
+                        RepromptState(running = false, lastResult = summary)
+                    } else {
+                        RepromptState(
+                            running = false,
+                            lastError = (result as com.spendai.app.domain.ingestion.IngestionOutcome.Failure).message
+                                ?: "Reprompt failed",
+                        )
+                    }
+                },
+                onFailure = { t ->
+                    RepromptState(running = false, lastError = t.message ?: t.javaClass.simpleName)
+                },
+            )
+            _state.update { it.copy(reprompt = newState) }
+            // Re-load the linked-SMS view + transaction so the screen
+            // reflects the new state.
+            val txn = withContext(Dispatchers.IO) { transactionRepository.getById(s.transactionId) }
+            if (txn != null) {
+                val linkedSms = withContext(Dispatchers.IO) { loadLinkedSms(txn) }
+                _state.update { it.copy(linkedSms = linkedSms) }
+            }
+        }
+    }
+
+    /** Reset the reprompt status so the dialog can be reopened cleanly. */
+    fun clearRepromptStatus() {
+        _state.update { it.copy(reprompt = RepromptState()) }
+    }
+
     fun delete() {
         val id = _state.value.transactionId
         if (id <= 0L) return
@@ -254,6 +372,10 @@ class EditTransactionViewModel(
                     accountRepository = app.accountRepository,
                     categoryRepository = app.categoryRepository,
                     smsRepository = app.smsRepository,
+                    linkedSmsDao = app.database.linkedSmsDao(),
+                    manualCorrectionRepository = app.manualCorrectionRepository,
+                    ingestionPipeline = app.ingestionPipeline,
+                    gemmaInferenceEngine = app.gemmaInferenceEngine,
                 ) as T
             }
         }

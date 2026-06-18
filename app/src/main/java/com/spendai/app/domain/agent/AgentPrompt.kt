@@ -294,12 +294,62 @@ Rules:
     fun a3UserMessage(
         recent: List<A3ContextTransaction>,
         candidate: A3CandidateInfo
+    ): String = a3UserMessage(recent, candidate, emptyList(), null)
+
+    /**
+     * Full A3 user message with optional manual corrections and a
+     * one-off override prompt. The corrections are the user's
+     * persisted rules (newest first, capped at the repo's
+     * MAX_INJECTED). The override is the prompt the user typed
+     * for this specific run; it sits at the top of the message so
+     * the model sees it first.
+     */
+    fun a3UserMessage(
+        recent: List<A3ContextTransaction>,
+        candidate: A3CandidateInfo,
+        manualCorrections: List<ManualCorrectionRow>,
+        overridePrompt: String?,
     ): String = buildString {
+        if (!overridePrompt.isNullOrBlank()) {
+            append("## Override for this run\n")
+            append("The user has provided the following instruction for this single audit. Honour it as a hard override for the candidate below.\n")
+            append(overridePrompt.trim())
+            append("\n\n")
+        }
+        if (manualCorrections.isNotEmpty()) {
+            append("## Manual corrections (user rules)\n")
+            append("The user has confirmed the following rules. Apply them as additional constraints when deciding COMMIT / DUPLICATE / IGNORE and when setting transfer links. Treat each rule as a hard override for the situations it describes.\n")
+            manualCorrections.forEachIndexed { i, c ->
+                append("")
+                append(i + 1).append(". [")
+                append(c.timestampLabel).append("] ")
+                if (c.linkedSmsIds.isNotEmpty()) {
+                    append("(rawSmsId=").append(c.rawSmsId).append(", linked=[")
+                    append(c.linkedSmsIds.joinToString(",")).append("]) ")
+                } else {
+                    append("(rawSmsId=").append(c.rawSmsId).append(") ")
+                }
+                append(c.userPrompt).append("\n")
+            }
+            append("\n")
+        }
         append("Recent Transactions (Database Context):\n")
         append(JSON.encodeToString(kotlinx.serialization.builtins.ListSerializer(A3ContextTransaction.serializer()), recent))
         append("\n\nCurrent Candidate Transaction:\n")
         append(JSON.encodeToString(A3CandidateInfo.serializer(), candidate))
     }
+
+    /**
+     * Lightweight DTO for the manual corrections A3 receives.
+     * Decouples the prompt formatter from the Room entity so the
+     * formatter stays trivially testable.
+     */
+    data class ManualCorrectionRow(
+        val rawSmsId: Long,
+        val linkedSmsIds: List<Long>,
+        val userPrompt: String,
+        val timestampLabel: String,
+    )
 
     const val A3_CORRECTIVE_PROMPT =
         "Your previous response was not valid JSON. Respond with the JSON object only, " +

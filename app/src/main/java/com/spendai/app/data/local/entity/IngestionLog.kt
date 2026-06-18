@@ -96,6 +96,15 @@ data class IngestionLog(
 
     @ColumnInfo(name = "a2Error")
     val a2Error: String? = null,
+
+    /**
+     * Optional user-typed override prompt for reprompt runs. Set
+     * when the user explicitly asked A3 to re-decide with a custom
+     * instruction (e.g. "this 50k credit is not a duplicate, link
+     * as transfer"). Null on normal pipeline runs.
+     */
+    @ColumnInfo(name = "userPrompt")
+    val userPrompt: String? = null,
 )
 
 /** A1 outcomes recorded on the audit row. */

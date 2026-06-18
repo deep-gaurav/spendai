@@ -15,6 +15,7 @@ import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
 import com.spendai.app.data.repository.PendingReviewRepository
 import com.spendai.app.data.repository.IngestionLogRepository
+import com.spendai.app.data.repository.ManualCorrectionRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionLinkRepository
 import com.spendai.app.data.repository.TransactionRepository
@@ -86,6 +87,9 @@ open class SpendAiApp : Application() {
     val ingestionLogRepository: IngestionLogRepository by lazy {
         IngestionLogRepository(database.ingestionLogDao())
     }
+    val manualCorrectionRepository: ManualCorrectionRepository by lazy {
+        ManualCorrectionRepository(database.manualCorrectionDao())
+    }
 
     val gemmaInferenceEngine: GemmaInferenceEngine by lazy { GemmaInferenceEngine() }
 
@@ -107,7 +111,8 @@ open class SpendAiApp : Application() {
         Agent3Auditor(
             engine = gemmaInferenceEngine,
             database = database,
-            transactionRepository = transactionRepository
+            transactionRepository = transactionRepository,
+            manualCorrectionRepository = manualCorrectionRepository,
         )
     }
 
@@ -117,6 +122,7 @@ open class SpendAiApp : Application() {
             smsRepository = smsRepository,
             parsedSmsRepository = parsedSmsRepository,
             ingestionLogRepository = ingestionLogRepository,
+            manualCorrectionRepository = manualCorrectionRepository,
             agent1 = agent1SmsParser,
             agent2 = agent2EntityResolver,
             agent3 = agent3Auditor,

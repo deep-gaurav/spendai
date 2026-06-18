@@ -8,6 +8,7 @@ import com.spendai.app.data.local.entity.IngestionLogA2
 import com.spendai.app.data.local.entity.ParsedSmsKind
 import com.spendai.app.data.local.entity.RawSmsMessage
 import com.spendai.app.data.repository.IngestionLogRepository
+import com.spendai.app.data.repository.ManualCorrectionRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.domain.agent.A1Outcome
@@ -63,6 +64,7 @@ class IngestionPipeline(
     private val smsRepository: SmsRepository,
     private val parsedSmsRepository: ParsedSmsRepository,
     private val ingestionLogRepository: IngestionLogRepository,
+    private val manualCorrectionRepository: ManualCorrectionRepository? = null,
     private val agent1: Agent1SmsParser,
     private val agent2: Agent2EntityResolver,
     private val agent3: Agent3Auditor,
@@ -101,6 +103,63 @@ class IngestionPipeline(
             throw ce
         } catch (t: Throwable) {
             Log.e(TAG, "Pipeline failed", t)
+            emit(IngestionProgress.Failure(t.message ?: t.javaClass.simpleName))
+            IngestionOutcome.Failure(t.message ?: t.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Reprompt path. Persists a [com.spendai.app.data.local.entity.ManualCorrection]
+     * with the user-typed prompt, then re-runs A3 on every supplied raw_sms id,
+     * passing the user-typed prompt as the override for every call. The pipeline
+     * is naturally idempotent: re-running A3 with a new decision un-commits or
+     * modifies prior transactions through its `modifications` list, so a single
+     * reprompt can fix the source row, the linked duplicates, and the link
+     * edges in one go.
+     */
+    suspend fun runWithReprompt(
+        rawSmsIds: List<Long>,
+        userPrompt: String,
+        emit: suspend (IngestionProgress) -> Unit,
+    ): IngestionOutcome = withContext(Dispatchers.IO) {
+        try {
+            if (rawSmsIds.isEmpty()) {
+                emit(IngestionProgress.Failure("No raw SMS ids supplied to reprompt"))
+                return@withContext IngestionOutcome.Failure("No raw SMS ids supplied to reprompt")
+            }
+            if (userPrompt.isBlank()) {
+                emit(IngestionProgress.Failure("Reprompt prompt was blank"))
+                return@withContext IngestionOutcome.Failure("Reprompt prompt was blank")
+            }
+            val messages = rawSmsIds.mapNotNull { smsRepository.getById(it) }
+            if (messages.isEmpty()) {
+                emit(IngestionProgress.Failure("None of $rawSmsIds matched a raw SMS row"))
+                return@withContext IngestionOutcome.Failure("None of $rawSmsIds matched a raw SMS row")
+            }
+            val now = System.currentTimeMillis()
+            val linkedIds = rawSmsIds.filter { it != messages.first().id }
+            val linkedJson = "[" + linkedIds.joinToString(",") + "]"
+            if (manualCorrectionRepository != null) {
+                runCatching {
+                    manualCorrectionRepository.insert(
+                        com.spendai.app.data.local.entity.ManualCorrection(
+                            rawSmsId = messages.first().id,
+                            linkedSmsIds = linkedJson,
+                            userPrompt = userPrompt,
+                            createdAt = now,
+                        )
+                    )
+                }.onFailure { Log.w(TAG, "ManualCorrection insert failed", it) }
+            }
+            val summary = processMessages(messages, emit, overridePrompt = userPrompt)
+            emit(IngestionProgress.Done(summary))
+            IngestionOutcome.Success(summary)
+        } catch (ce: CancellationException) {
+            Log.i(TAG, "runWithReprompt cancelled")
+            emit(IngestionProgress.Cancelled)
+            throw ce
+        } catch (t: Throwable) {
+            Log.e(TAG, "runWithReprompt failed", t)
             emit(IngestionProgress.Failure(t.message ?: t.javaClass.simpleName))
             IngestionOutcome.Failure(t.message ?: t.javaClass.simpleName)
         }
@@ -166,6 +225,7 @@ class IngestionPipeline(
     private suspend fun processMessages(
         pending: List<RawSmsMessage>,
         emit: suspend (IngestionProgress) -> Unit,
+        overridePrompt: String? = null,
     ): IngestionSummary {
         var parsedCount = 0
         var ignoredCount = 0
@@ -191,11 +251,16 @@ class IngestionPipeline(
                 onCommitted = { committedCount++ },
                 onSkippedByA1 = { skippedByA1++ },
                 onSkippedByA2 = { skippedByA2++ },
+                overridePrompt = overridePrompt,
             )
         }
 
         runCatching { ingestionLogRepository.pruneToMostRecent() }
             .onFailure { Log.w(TAG, "IngestionLog prune failed", it) }
+        manualCorrectionRepository?.let { repo ->
+            runCatching { repo.pruneToMostRecent() }
+                .onFailure { Log.w(TAG, "ManualCorrection prune failed", it) }
+        }
 
         return IngestionSummary(
             totalMessages = totalMessages,
@@ -220,8 +285,10 @@ class IngestionPipeline(
         onCommitted: () -> Unit,
         onSkippedByA1: () -> Unit,
         onSkippedByA2: () -> Unit,
+        overridePrompt: String? = null,
     ) {
         val ingestedAt = System.currentTimeMillis()
+        val userPrompt = overridePrompt
 
         val cached = parsedSmsRepository.getByRawSms(message.id)
         val isSyntheticIgnore = cached != null &&
@@ -263,6 +330,7 @@ class IngestionPipeline(
                     ingestedAt = ingestedAt,
                     a1Outcome = IngestionLogA1.SKIPPED_A1,
                     a1Error = t.message ?: t.javaClass.simpleName,
+                    userPrompt = userPrompt,
                 )
                 onSkippedByA1()
                 return
@@ -281,6 +349,7 @@ class IngestionPipeline(
                     onIgnored = onIgnored,
                     onCommitted = onCommitted,
                     onSkippedByA2 = onSkippedByA2,
+                    overridePrompt = overridePrompt,
                 )
                 return
             }
@@ -307,6 +376,7 @@ class IngestionPipeline(
                 a1Response = a1.response,
                 a1Confidence = a1.parsed.a1Confidence,
                 a2Outcome = IngestionLogA2.NOT_RUN,
+                userPrompt = userPrompt,
             )
             onIgnored()
             return
@@ -338,6 +408,7 @@ class IngestionPipeline(
                 a2Prompt = e.prompt,
                 a2Response = e.response,
                 a2Error = e.message ?: e.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
             onSkippedByA2()
             return
@@ -362,8 +433,8 @@ class IngestionPipeline(
                 a1Confidence = a1.parsed.a1Confidence,
                 a2Outcome = IngestionLogA2.SKIPPED_A2,
                 a2Error = t.message ?: t.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
-            onSkippedByA2()
             return
         }
 
@@ -398,6 +469,7 @@ class IngestionPipeline(
                 a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${e.prompt}",
                 a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${e.response}",
                 a2Error = e.message ?: e.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
             onSkippedByA2()
             return
@@ -424,6 +496,7 @@ class IngestionPipeline(
                 a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}",
                 a2Response = "A2 Response:\n${a2Candidate.response}",
                 a2Error = t.message ?: t.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
             onSkippedByA2()
             return
@@ -443,7 +516,8 @@ class IngestionPipeline(
                 a2Outcome = IngestionLogA2.NOT_RUN,
                 a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
                 a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
-                a2Confidence = a2Candidate.contract.a2Confidence
+                a2Confidence = a2Candidate.contract.a2Confidence,
+                userPrompt = userPrompt,
             )
             onIgnored()
             return
@@ -470,6 +544,7 @@ class IngestionPipeline(
             a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
             a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
             a2Confidence = a2Candidate.contract.a2Confidence,
+            userPrompt = userPrompt,
         )
         onCommitted()
     }
@@ -485,7 +560,9 @@ class IngestionPipeline(
         onIgnored: () -> Unit,
         onCommitted: () -> Unit,
         onSkippedByA2: () -> Unit,
+        overridePrompt: String? = null,
     ) {
+        val userPrompt = overridePrompt
         emit(
             IngestionProgress.MessageParsed(
                 messageIndex = messageIndex,
@@ -504,6 +581,7 @@ class IngestionPipeline(
                 a1Outcome = IngestionLogA1.IGNORE,
                 a1Confidence = cached.a1Confidence,
                 a2Outcome = IngestionLogA2.NOT_RUN,
+                userPrompt = userPrompt,
             )
             onIgnored()
             return
@@ -514,7 +592,11 @@ class IngestionPipeline(
             database.transactionDao()
         )
         val existingTxn = txnRepo.getByParsedSms(cached.id)
-        if (existingTxn != null) {
+        // Reprompt path: when the user typed an override prompt,
+        // skip the cache-hit short-circuit so A2 + A3 run again
+        // and have a chance to issue modifications (DELETED for
+        // the previous transaction, etc.) on the existing rows.
+        if (existingTxn != null && overridePrompt == null) {
             recordLog(
                 rawSmsId = message.id,
                 parsedSmsId = cached.id,
@@ -525,6 +607,7 @@ class IngestionPipeline(
                 a1Response = cached.a1RawJson.ifBlank { null },
                 a2Outcome = IngestionLogA2.COMMITTED,
                 a2Confidence = existingTxn.confidence,
+                userPrompt = userPrompt,
             )
             emit(
                 IngestionProgress.MessageCommitted(
@@ -566,6 +649,7 @@ class IngestionPipeline(
                 a2Prompt = e.prompt,
                 a2Response = e.response,
                 a2Error = e.message ?: e.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
             onSkippedByA2()
             return
@@ -593,8 +677,8 @@ class IngestionPipeline(
                 a1Response = cached.a1RawJson.ifBlank { null },
                 a2Outcome = IngestionLogA2.SKIPPED_A2,
                 a2Error = t.message ?: t.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
-            onSkippedByA2()
             return
         }
 
@@ -628,8 +712,8 @@ class IngestionPipeline(
                 a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${e.prompt}",
                 a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${e.response}",
                 a2Error = e.message ?: e.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
-            onSkippedByA2()
             return
         } catch (t: Throwable) {
             Log.w(TAG, "A3 retry on cache hit unexpected throw for parsedSmsId=${cached.id}; skipping", t)
@@ -653,8 +737,8 @@ class IngestionPipeline(
                 a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}",
                 a2Response = "A2 Response:\n${a2Candidate.response}",
                 a2Error = t.message ?: t.javaClass.simpleName,
+                userPrompt = userPrompt,
             )
-            onSkippedByA2()
             return
         }
 
@@ -671,7 +755,8 @@ class IngestionPipeline(
                 a2Outcome = IngestionLogA2.NOT_RUN,
                 a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
                 a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
-                a2Confidence = a2Candidate.contract.a2Confidence
+                a2Confidence = a2Candidate.contract.a2Confidence,
+                userPrompt = userPrompt,
             )
             onIgnored()
             return
@@ -697,6 +782,7 @@ class IngestionPipeline(
             a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
             a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
             a2Confidence = a2Candidate.contract.a2Confidence,
+            userPrompt = userPrompt,
         )
         onCommitted()
     }
@@ -716,6 +802,7 @@ class IngestionPipeline(
         a2Response: String? = null,
         a2Error: String? = null,
         a2Confidence: Float? = null,
+        userPrompt: String? = null,
     ) {
         runCatching {
             ingestionLogRepository.insert(
@@ -734,6 +821,7 @@ class IngestionPipeline(
                     a2Response = a2Response,
                     a2Error = a2Error,
                     a2Confidence = a2Confidence,
+                    userPrompt = userPrompt,
                 )
             )
         }.onFailure { Log.w(TAG, "IngestionLog insert failed for rawSmsId=$rawSmsId", it) }

@@ -6,6 +6,7 @@ import com.spendai.app.data.local.AppDatabase
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionLink
 import com.spendai.app.data.local.entity.TransactionStatus
+import com.spendai.app.data.repository.ManualCorrectionRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.inference.InferenceState
@@ -28,6 +29,7 @@ class Agent3Auditor(
     private val engine: GemmaInferenceEngine,
     private val database: AppDatabase,
     private val transactionRepository: TransactionRepository,
+    private val manualCorrectionRepository: ManualCorrectionRepository? = null,
 ) {
     private companion object {
         const val TAG = "Agent3Auditor"
@@ -46,12 +48,14 @@ class Agent3Auditor(
         rawSmsText: String,
         a2Prompt: String,
         a2Response: String,
+        overridePrompt: String? = null,
     ): A3Outcome = withContext(Dispatchers.IO) {
         require(engine.state.value is InferenceState.Ready) {
             "Engine not READY (state=${engine.state.value}). Call initialize() first."
         }
 
         val contextTransactions = loadContext(candidate.txnAtMillis)
+        val manualCorrectionRows = loadManualCorrections()
         val account = database.accountDao().getById(candidate.accountId)
         val accountLabel = "${account?.issuer ?: "Unknown"} ${account?.maskedNumber ?: ""}".trim()
         val merchant = candidate.merchantId?.let { database.merchantDao().getById(it) }
@@ -68,7 +72,9 @@ class Agent3Auditor(
             title = candidate.title
         )
 
-        val userMessage = AgentPrompt.a3UserMessage(contextTransactions, candidateInfo)
+        val userMessage = AgentPrompt.a3UserMessage(
+            contextTransactions, candidateInfo, manualCorrectionRows, overridePrompt,
+        )
         val fullPrompt = AgentPrompt.A3_SYSTEM_INSTRUCTION + "\n\n" + userMessage
 
         Log.d(TAG, "A3 input rawSmsId=$rawSmsId fullPrompt length: ${fullPrompt.length}")
@@ -154,11 +160,44 @@ class Agent3Auditor(
             when (dec.decision) {
                 "DUPLICATE" -> {
                     val dupId = dec.duplicateOfTransactionId ?: -1L
-                    if (dupId != -1L) {
-                        val existing = database.transactionDao().getById(dupId)
+                    // Self-duplicate detection: A2 sometimes echoes back the
+                    // candidate's own existing transaction as the duplicate
+                    // target on a reprompt. If the candidate also has a
+                    // transfer link, treat the link as the real reference and
+                    // delete the self-duplicate so "this credit is a duplicate
+                    // of the debit" actually removes the standalone credit row.
+                    val previousTxn = database.transactionDao().getByParsedSms(candidate.parsedSmsId)
+                    val selfDuplicate = previousTxn != null && previousTxn.id == dupId
+                    val effectiveDupId = if (selfDuplicate && dec.transferLinkWithTransactionId != null) {
+                        val linkTarget = database.transactionDao().getById(dec.transferLinkWithTransactionId)
+                        if (linkTarget != null) {
+                            database.transactionDao().delete(previousTxn)
+                            Log.d(TAG, "A3 redirected self-duplicate: deleted ${previousTxn.id}, using transfer link ${linkTarget.id}")
+                            dec.transferLinkWithTransactionId
+                        } else {
+                            dupId
+                        }
+                    } else {
+                        dupId
+                    }
+                    if (effectiveDupId != -1L) {
+                        val existing = database.transactionDao().getById(effectiveDupId)
                         if (existing != null) {
                             // Merge/update duplicate transaction
                             var updated = existing
+                            // Auto-cleanup: if the candidate shared a parsed_sms with a
+                            // previous transaction that is NOT the duplicate target,
+                            // delete it. This makes "this credit is a duplicate of the
+                            // debit" actually remove the standalone credit row, which is
+                            // what the user means on a reprompt run. Safe in the normal
+                            // flow: when A2 returns DUPLICATE it never inserts a new row
+                            // for the candidate, so getByParsedSms returns null here.
+                            database.transactionDao().getByParsedSms(candidate.parsedSmsId)
+                                ?.takeIf { it.id != effectiveDupId }
+                                ?.let { stale ->
+                                    database.transactionDao().delete(stale)
+                                    Log.d(TAG, "A3 auto-deleted previous transactionId=${"$"}{stale.id} sharing parsedSmsId=${"$"}{candidate.parsedSmsId}")
+                                }
                             val ref = dec.referenceNo ?: candidate.referenceNo
                             val chan = candidate.channel
                             val mId = dec.merchantId ?: candidate.merchantId
@@ -188,7 +227,7 @@ class Agent3Auditor(
                                 database.transactionLinkDao().insertIgnore(
                                     TransactionLink(
                                         fromTransactionId = dec.transferLinkWithTransactionId,
-                                        toTransactionId = dupId,
+                                        toTransactionId = effectiveDupId,
                                         linkType = linkType,
                                         confidence = candidate.confidence,
                                         createdAt = now,
@@ -197,7 +236,7 @@ class Agent3Auditor(
                             }
                         }
                     }
-                    dupId
+                    effectiveDupId
                 }
                 "IGNORE" -> {
                     -1L
@@ -243,6 +282,52 @@ class Agent3Auditor(
             isDuplicate = (contract.currentDecision.decision == "DUPLICATE"),
             isIgnored = (contract.currentDecision.decision == "IGNORE")
         )
+    }
+
+    /**
+     * Load the [com.spendai.app.data.repository.ManualCorrectionRepository.MAX_INJECTED]
+     * most recent manual corrections and project them into
+     * [AgentPrompt.ManualCorrectionRow] so the prompt formatter
+     * stays decoupled from Room. Returns an empty list if the
+     * repository was not injected (e.g. in tests that do not care
+     * about user rules).
+     */
+    private suspend fun loadManualCorrections(): List<AgentPrompt.ManualCorrectionRow> {
+        val repo = manualCorrectionRepository ?: return emptyList()
+        return repo.getRecent().map { row ->
+            val linkedIds = parseLinkedSmsIds(row.linkedSmsIds)
+            val label = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(row.createdAt))
+            AgentPrompt.ManualCorrectionRow(
+                rawSmsId = row.rawSmsId,
+                linkedSmsIds = linkedIds,
+                userPrompt = row.userPrompt,
+                timestampLabel = label,
+            )
+        }
+    }
+
+    /**
+     * Parse the JSON array of linked raw_sms ids stored on the row.
+     * Defensive: the column is TEXT and we never want a malformed
+     * payload to crash the pipeline.
+     */
+    private fun parseLinkedSmsIds(json: String): List<Long> {
+        if (json.isBlank()) return emptyList()
+        // Manual parse instead of pulling in the reified
+        // Long.serializer() helper: a JSON array of integers is
+        // trivial and avoids forcing parseLinkedSmsIds to be
+        // inline reified just for this one call.
+        return runCatching {
+            val raw = json.trim()
+            if (!raw.startsWith("[") || !raw.endsWith("]")) return emptyList()
+            val body = raw.substring(1, raw.length - 1).trim()
+            if (body.isEmpty()) return emptyList()
+            body.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .mapNotNull { it.toLongOrNull() }
+        }.getOrDefault(emptyList())
     }
 
     private suspend fun loadContext(targetMillis: Long): List<AgentPrompt.A3ContextTransaction> {

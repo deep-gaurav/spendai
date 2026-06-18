@@ -76,6 +76,7 @@ fun EditTransactionScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showCategoryPicker by remember { mutableStateOf(false) }
+    var showReprompt by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.saved, state.deleted) {
         if (state.saved || state.deleted) onBack()
@@ -125,6 +126,21 @@ fun EditTransactionScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd)) {
                 SourceSmsCard(rawSms = state.rawSms)
+                LinkedSmsCard(rows = state.linkedSms)
+                if (state.linkedSms.isNotEmpty()) {
+                    BigOutlinedButton(
+                        onClick = { showReprompt = true },
+                        text = if (state.reprompt.running) "Reprompting..." else "Reprompt A3",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                state.reprompt.lastResult?.let { msg ->
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 StatusRow(state.status, state.confidence)
                 TitleCard(
                     title = state.title,
@@ -185,6 +201,21 @@ fun EditTransactionScreen(
                 Spacer(Modifier.size(Dimens.SpaceMd))
             }
         }
+    }
+
+    if (showReprompt) {
+        RepromptDialog(
+            onDismiss = {
+                showReprompt = false
+                viewModel.clearRepromptStatus()
+            },
+            onSubmit = { prompt ->
+                viewModel.reprompt(prompt)
+                showReprompt = false
+            },
+            running = state.reprompt.running,
+            errorMessage = state.reprompt.lastError,
+        )
     }
 
     if (showCategoryPicker) {

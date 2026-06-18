@@ -3,6 +3,8 @@ package com.spendai.app.domain.ingestion
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.spendai.app.data.local.AppDatabase
+import com.spendai.app.data.local.entity.IngestionLog
+import com.spendai.app.data.local.entity.ManualCorrection
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.ParsedSmsKind
 import com.spendai.app.data.local.entity.RawSmsMessage
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -57,6 +60,7 @@ class IngestionPipelineTest {
     private lateinit var pipeline: IngestionPipeline
     private lateinit var smsRepo: SmsRepository
     private lateinit var txnRepo: TransactionRepository
+    private lateinit var manualCorrectionRepo: com.spendai.app.data.repository.ManualCorrectionRepository
     private val engine: GemmaInferenceEngine = mockk(relaxed = true)
 
     @Before
@@ -73,6 +77,7 @@ class IngestionPipelineTest {
         val merchantRepo = MerchantRepository(db.merchantDao())
         txnRepo = TransactionRepository(db.transactionDao())
         val ingestionLogRepo = IngestionLogRepository(db.ingestionLogDao())
+        manualCorrectionRepo = com.spendai.app.data.repository.ManualCorrectionRepository(db.manualCorrectionDao())
         coEvery { engine.state } returns MutableStateFlow(InferenceState.Ready("NPU"))
         val a1 = Agent1SmsParser(engine, parsedRepo)
         val a2 = Agent2EntityResolver(
@@ -88,12 +93,14 @@ class IngestionPipelineTest {
             engine = engine,
             database = db,
             transactionRepository = txnRepo,
+            manualCorrectionRepository = manualCorrectionRepo,
         )
         pipeline = IngestionPipeline(
             database = db,
             smsRepository = smsRepo,
             parsedSmsRepository = parsedRepo,
             ingestionLogRepository = ingestionLogRepo,
+            manualCorrectionRepository = manualCorrectionRepo,
             agent1 = a1,
             agent2 = a2,
             agent3 = a3,
@@ -330,5 +337,54 @@ class IngestionPipelineTest {
         assertEquals(1, txns.size)
         assertEquals(TransactionStatus.CONFIRMED.name, txns[0].status)
         assertEquals(0.4f, txns[0].confidence, 0.0001f)
+    }
+
+    @Test
+    fun `runWithReprompt persists a correction and runs A3 on every id`() = runTest {
+        stubHappyPath()
+        val now = System.currentTimeMillis()
+        // Seed two SMSes so we have ids to reprompt against.
+        val source = ListSmsSource(listOf(
+            rawMsg("VK-TEST", "Rs 100 spent at Acme", now - 1_000L, id = 1L),
+            rawMsg("VK-TEST", "Rs 200 at Other", now - 2_000L, id = 2L),
+        ))
+        pipeline.run(
+            source = source,
+            range = DateRange(0L, Long.MAX_VALUE),
+            emit = { },
+        )
+        // Sanity: two transactions committed.
+        assertEquals(2, txnRepo.getSince(0L).size)
+        // Reprompt on both ids with a custom prompt.
+        val outcome = pipeline.runWithReprompt(
+            rawSmsIds = listOf(1L, 2L),
+            userPrompt = "treat credit as transfer not duplicate",
+            emit = { },
+        )
+        assertTrue(outcome is IngestionOutcome.Success)
+        // A correction row was persisted.
+        assertEquals(1, manualCorrectionRepo.count())
+        val corr = manualCorrectionRepo.getRecent().first()
+        assertEquals(1L, corr.rawSmsId)
+        assertEquals("[2]", corr.linkedSmsIds)
+        assertEquals("treat credit as transfer not duplicate", corr.userPrompt)
+        // The reprompt ran A3 on each id, so the agent saw
+        // overridePrompt non-null in this window. We can detect
+        // it via the IngestionLog row, which now has a non-null
+        // userPrompt column.
+        val log = db.ingestionLogDao().getRecent(5).firstOrNull { it.rawSmsId == 1L }
+        assertNotNull(log)
+        assertEquals("treat credit as transfer not duplicate", log!!.userPrompt)
+    }
+
+    @Test
+    fun `runWithReprompt on an unknown id is a no-op failure`() = runTest {
+        val outcome = pipeline.runWithReprompt(
+            rawSmsIds = listOf(999L),
+            userPrompt = "x",
+            emit = { },
+        )
+        assertTrue(outcome is IngestionOutcome.Failure)
+        assertEquals(0, manualCorrectionRepo.count())
     }
 }

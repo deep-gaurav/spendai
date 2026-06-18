@@ -17,6 +17,8 @@ import com.spendai.app.data.local.entity.TransactionStatus
 import com.spendai.app.data.repository.AccountRepository
 import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
+import com.spendai.app.data.local.dao.LinkedSmsDao
+import com.spendai.app.data.repository.ManualCorrectionRepository
 import com.spendai.app.data.repository.MerchantRepository
 import com.spendai.app.data.repository.ParsedSmsRepository
 import com.spendai.app.data.repository.SmsRepository
@@ -156,6 +158,10 @@ class EditTransactionViewModelTest {
             accountRepository = accountRepo,
             categoryRepository = categoryRepo,
             smsRepository = smsRepo,
+            linkedSmsDao = db.linkedSmsDao(),
+            manualCorrectionRepository = ManualCorrectionRepository(db.manualCorrectionDao()),
+            ingestionPipeline = null,
+            gemmaInferenceEngine = null,
         )
     }
 
