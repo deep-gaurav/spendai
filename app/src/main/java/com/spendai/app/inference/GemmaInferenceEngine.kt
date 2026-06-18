@@ -191,7 +191,7 @@ class GemmaInferenceEngine {
             val startedAt = System.currentTimeMillis()
             _state.value = InferenceState.Busy(InferenceStepProgress(stepLabel, 0, startedAt))
             try {
-                val response = callGeminiApi(prompt, maxOutputTokensOverride = maxOutputTokens)
+                val response = callExternalApi(prompt, maxOutputTokensOverride = maxOutputTokens)
                 val tokensCount = response.split(Regex("\\s+")).size
                 _state.value = InferenceState.Busy(InferenceStepProgress(stepLabel, tokensCount, startedAt))
                 onChunk(response)
@@ -329,7 +329,7 @@ class GemmaInferenceEngine {
             val startedAt = System.currentTimeMillis()
             _state.value = InferenceState.Busy(InferenceStepProgress("probe", 0, startedAt))
             try {
-                callGeminiApi(prompt, systemInstruction = PROBE_SYSTEM_INSTRUCTION)
+                callExternalApi(prompt, systemInstruction = PROBE_SYSTEM_INSTRUCTION)
             } finally {
                 if (_state.value is InferenceState.Busy) {
                     _state.value = InferenceState.Ready(currentBackendLabel)
@@ -368,47 +368,119 @@ class GemmaInferenceEngine {
         emit(response)
     }.flowOn(Dispatchers.IO)
 
-    private fun getSavedApiKey(context: Context): String {
+    private fun getSavedSettings(context: Context): ExternalLlmSettings {
         val prefs = context.getSharedPreferences("spendai_settings", Context.MODE_PRIVATE)
-        return prefs.getString("gemini_api_key", "") ?: ""
+        val provider = prefs.getString("llm_provider", "GEMINI") ?: "GEMINI"
+        val apiKey = (prefs.getString("llm_api_key", "") ?: "").ifEmpty { prefs.getString("gemini_api_key", "") ?: "" }
+        val model = prefs.getString("llm_model", "gemma-4-31b-it") ?: "gemma-4-31b-it"
+        val baseUrl = prefs.getString("llm_base_url", "") ?: ""
+        return ExternalLlmSettings(provider, apiKey, model, baseUrl)
     }
 
-    private suspend fun callGeminiApi(
+    private suspend fun callExternalApi(
         prompt: String,
         systemInstruction: String? = null,
         maxOutputTokensOverride: Int? = null,
     ): String = withContext(Dispatchers.IO) {
         val ctx = initContext ?: throw IOException("GemmaInferenceEngine not initialized")
-        val apiKey = getSavedApiKey(ctx)
-        if (apiKey.isEmpty()) {
-            throw IOException("Gemini API Key is not set. Please set it in onboarding.")
+        val settings = getSavedSettings(ctx)
+        
+        if (settings.provider != "OLLAMA" && settings.apiKey.isEmpty()) {
+            throw IOException("${settings.provider} API Key is not set. Please configure it in model settings.")
         }
 
         val effectiveMaxOutputTokens = maxOutputTokensOverride ?: (currentConfig?.maxTokens ?: 32768)
-
         val mediaType = "application/json; charset=utf-8".toMediaType()
-        val requestBodyJson = buildJsonObject {
-            if (systemInstruction != null) {
-                putJsonObject("systemInstruction") {
-                    putJsonArray("parts") {
-                        addJsonObject {
-                            put("text", systemInstruction)
+
+        val request = when (settings.provider) {
+            "GEMINI" -> {
+                val requestBodyJson = buildJsonObject {
+                    if (systemInstruction != null) {
+                        putJsonObject("systemInstruction") {
+                            putJsonArray("parts") {
+                                addJsonObject {
+                                    put("text", systemInstruction)
+                                }
+                            }
                         }
                     }
-                }
-            }
-            putJsonArray("contents") {
-                addJsonObject {
-                    putJsonArray("parts") {
+                    putJsonArray("contents") {
                         addJsonObject {
-                            put("text", prompt)
+                            putJsonArray("parts") {
+                                addJsonObject {
+                                    put("text", prompt)
+                                }
+                            }
                         }
                     }
+                    putJsonObject("generationConfig") {
+                        put("temperature", 0.2)
+                        put("maxOutputTokens", effectiveMaxOutputTokens)
+                    }
                 }
+                
+                val modelName = settings.model.ifEmpty { "gemma-4-31b-it" }
+                Request.Builder()
+                    .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=${settings.apiKey}")
+                    .post(requestBodyJson.toString().toRequestBody(mediaType))
+                    .build()
             }
-            putJsonObject("generationConfig") {
-                put("temperature", 0.2)
-                put("maxOutputTokens", effectiveMaxOutputTokens)
+            "CLAUDE" -> {
+                val requestBodyJson = buildJsonObject {
+                    put("model", settings.model.ifEmpty { "claude-3-5-sonnet" })
+                    if (systemInstruction != null) {
+                        put("system", systemInstruction)
+                    }
+                    putJsonArray("messages") {
+                        addJsonObject {
+                            put("role", "user")
+                            put("content", prompt)
+                        }
+                    }
+                    put("temperature", 0.2)
+                    put("max_tokens", effectiveMaxOutputTokens)
+                }
+                Request.Builder()
+                    .url("https://api.anthropic.com/v1/messages")
+                    .header("x-api-key", settings.apiKey)
+                    .header("anthropic-version", "2023-06-01")
+                    .post(requestBodyJson.toString().toRequestBody(mediaType))
+                    .build()
+            }
+            else -> { // OpenAI, Kimi, Zhipu/Zai, Ollama, etc. (OpenAI-compatible)
+                val requestBodyJson = buildJsonObject {
+                    put("model", settings.model)
+                    putJsonArray("messages") {
+                        if (systemInstruction != null) {
+                            addJsonObject {
+                                put("role", "system")
+                                put("content", systemInstruction)
+                            }
+                        }
+                        addJsonObject {
+                            put("role", "user")
+                            put("content", prompt)
+                        }
+                    }
+                    put("temperature", 0.2)
+                    put("max_tokens", effectiveMaxOutputTokens)
+                }
+                val defaultUrl = when (settings.provider) {
+                    "OPENAI" -> "https://api.openai.com/v1/chat/completions"
+                    "KIMI" -> "https://api.moonshot.cn/v1/chat/completions"
+                    "ZHIPU" -> "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+                    "OLLAMA" -> "http://10.0.2.2:11434/v1/chat/completions"
+                    else -> "https://api.openai.com/v1/chat/completions"
+                }
+                val url = settings.baseUrl.ifEmpty { defaultUrl }
+                val builder = Request.Builder()
+                    .url(url)
+                    .post(requestBodyJson.toString().toRequestBody(mediaType))
+                
+                if (settings.apiKey.isNotEmpty()) {
+                    builder.header("Authorization", "Bearer ${settings.apiKey}")
+                }
+                builder.build()
             }
         }
 
@@ -416,11 +488,6 @@ class GemmaInferenceEngine {
         val maxAttempts = 10
         while (attempt < maxAttempts) {
             attempt++
-            val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL:generateContent?key=$apiKey")
-                .post(requestBodyJson.toString().toRequestBody(mediaType))
-                .build()
-
             var responseCode = 0
             var errorMsg = ""
             var success = false
@@ -445,22 +512,37 @@ class GemmaInferenceEngine {
 
             if (success && responseBody != null) {
                 val element = Json.parseToJsonElement(responseBody!!)
-                val parts = element.jsonObject["candidates"]
-                    ?.jsonArray?.getOrNull(0)
-                    ?.jsonObject?.get("content")
-                    ?.jsonObject?.get("parts")
-                    ?.jsonArray
-                    ?: throw IOException("Failed to extract parts from Gemini response: $responseBody")
+                val text = when (settings.provider) {
+                    "GEMINI" -> {
+                        val parts = element.jsonObject["candidates"]
+                            ?.jsonArray?.getOrNull(0)
+                            ?.jsonObject?.get("content")
+                            ?.jsonObject?.get("parts")
+                            ?.jsonArray
+                            ?: throw IOException("Failed to extract parts from Gemini response: $responseBody")
 
-                // Filter out reasoning/thought blocks if present
-                val nonThoughtPart = parts.firstOrNull { part ->
-                    val thought = part.jsonObject["thought"]?.jsonPrimitive?.content
-                    thought != "true"
-                } ?: parts.getOrNull(0)
+                        val nonThoughtPart = parts.firstOrNull { part ->
+                            val thought = part.jsonObject["thought"]?.jsonPrimitive?.content
+                            thought != "true"
+                        } ?: parts.getOrNull(0)
 
-                val text = nonThoughtPart?.jsonObject?.get("text")?.jsonPrimitive?.content
-                    ?: throw IOException("Failed to extract text from Gemini response: $responseBody")
-
+                        nonThoughtPart?.jsonObject?.get("text")?.jsonPrimitive?.content
+                            ?: throw IOException("Failed to extract text from Gemini response: $responseBody")
+                    }
+                    "CLAUDE" -> {
+                        element.jsonObject["content"]
+                            ?.jsonArray?.getOrNull(0)
+                            ?.jsonObject?.get("text")?.jsonPrimitive?.content
+                            ?: throw IOException("Failed to extract text from Claude response: $responseBody")
+                    }
+                    else -> { // OpenAI-compatible
+                        element.jsonObject["choices"]
+                            ?.jsonArray?.getOrNull(0)
+                            ?.jsonObject?.get("message")
+                            ?.jsonObject?.get("content")?.jsonPrimitive?.content
+                            ?: throw IOException("Failed to extract text from response: $responseBody")
+                    }
+                }
                 return@withContext text
             }
 
@@ -472,10 +554,10 @@ class GemmaInferenceEngine {
                 )
                 kotlinx.coroutines.delay(60_000)
             } else {
-                throw IOException("Gemini API call failed with code $responseCode: $errorMsg")
+                throw IOException("${settings.provider} API call failed with code $responseCode: $errorMsg")
             }
         }
-        throw IOException("Gemini API call failed: Max rate limit retries ($maxAttempts) exceeded")
+        throw IOException("API call failed: Max rate limit retries ($maxAttempts) exceeded")
     }
 
     private fun buildProbeConfig(config: InferenceConfig) = ConversationConfig(
@@ -546,8 +628,6 @@ class GemmaInferenceEngine {
     private companion object {
         const val TAG = "GemmaInferenceEngine"
 
-        const val GEMINI_MODEL = "gemma-4-31b-it"
-
         /**
          * HTTP codes that signal a transient infrastructure error
          * and warrant a long backoff + retry:
@@ -571,3 +651,10 @@ class GemmaInferenceEngine {
             "You are a helpful assistant. Follow the user\'s instructions exactly."
     }
 }
+
+data class ExternalLlmSettings(
+    val provider: String,
+    val apiKey: String,
+    val model: String,
+    val baseUrl: String
+)

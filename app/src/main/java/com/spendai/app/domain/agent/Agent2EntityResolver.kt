@@ -11,7 +11,9 @@ import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.SourceStatus
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionDirection
+import com.spendai.app.data.local.entity.TransactionLink
 import com.spendai.app.data.local.entity.TransactionStatus
+import kotlinx.serialization.Serializable
 import com.spendai.app.data.repository.AccountRepository
 import com.spendai.app.data.repository.CategoryRepository
 import com.spendai.app.data.repository.FinancialSourceRepository
@@ -115,7 +117,7 @@ class Agent2EntityResolver(
         require(engine.state.value is InferenceState.Ready) {
             "Engine not READY (state=${engine.state.value}). Call initialize() first."
         }
-        val context = loadContext()
+        val context = loadContext(smsTimestampMillis)
         val userMessage = AgentPrompt.a2UserMessage(parsed, context.toBundleJson())
         val fullPrompt = AgentPrompt.A2_SYSTEM_INSTRUCTION + "\n\n" + userMessage
 
@@ -176,21 +178,91 @@ class Agent2EntityResolver(
 
         val now = System.currentTimeMillis()
         val txnId = database.withTransaction {
-            val sourceId = materialiseSource(contract.source, now)
-            val accountId = materialiseAccount(sourceId, contract.account, now)
-            val merchantRow = materialiseMerchant(contract.merchant, contract, now)
-            val categoryId = materialiseCategory(contract, now)
-            val txn = buildTransaction(
-                parsed = parsed,
-                accountId = accountId,
-                merchantId = merchantRow?.id,
-                categoryId = categoryId?.id,
-                contractTitle = contract.title,
-                smsTimestampMillis = smsTimestampMillis,
-                a2Confidence = contract.a2Confidence,
-                now = now,
-            )
-            insertTransaction(txn)
+            if (contract.duplicateOfTransactionId != null) {
+                val existingId = contract.duplicateOfTransactionId
+                val existingTxn = database.transactionDao().getById(existingId)
+                if (existingTxn != null) {
+                    var updatedTxn = existingTxn
+                    if (existingTxn.referenceNo.isNullOrEmpty() && !parsed.referenceNo.isNullOrEmpty()) {
+                        updatedTxn = updatedTxn.copy(referenceNo = parsed.referenceNo)
+                    }
+                    if (existingTxn.channel.isNullOrEmpty() && !parsed.channel.isNullOrEmpty()) {
+                        updatedTxn = updatedTxn.copy(channel = parsed.channel)
+                    }
+                    if (existingTxn.title.isNullOrEmpty() && !contract.title.isNullOrEmpty()) {
+                        updatedTxn = updatedTxn.copy(title = contract.title)
+                    }
+                    val merchantRow = materialiseMerchant(contract.merchant, contract, now)
+                    if (existingTxn.merchantId == null && merchantRow != null) {
+                        updatedTxn = updatedTxn.copy(merchantId = merchantRow.id)
+                    }
+                    val categoryRow = materialiseCategory(contract, now)
+                    if (existingTxn.categoryId == null && categoryRow != null) {
+                        updatedTxn = updatedTxn.copy(categoryId = categoryRow.id)
+                    }
+                    if (updatedTxn != existingTxn) {
+                        database.transactionDao().update(updatedTxn)
+                    }
+
+                    if (contract.transferLinkWithTransactionId != null) {
+                        val linkType = contract.transferLinkType ?: "SELF_TRANSFER"
+                        database.transactionLinkDao().insertIgnore(
+                            TransactionLink(
+                                fromTransactionId = contract.transferLinkWithTransactionId,
+                                toTransactionId = existingId,
+                                linkType = linkType,
+                                confidence = contract.a2Confidence,
+                                createdAt = now,
+                            )
+                        )
+                        if (categoryRow != null) {
+                            val otherTxn = database.transactionDao().getById(contract.transferLinkWithTransactionId)
+                            if (otherTxn != null && otherTxn.categoryId != categoryRow.id) {
+                                database.transactionDao().update(otherTxn.copy(categoryId = categoryRow.id))
+                            }
+                            if (updatedTxn.categoryId != categoryRow.id) {
+                                database.transactionDao().update(updatedTxn.copy(categoryId = categoryRow.id))
+                            }
+                        }
+                    }
+                }
+                existingId
+            } else {
+                val sourceId = materialiseSource(contract.source, now)
+                val accountId = materialiseAccount(sourceId, contract.account, now)
+                val merchantRow = materialiseMerchant(contract.merchant, contract, now)
+                val categoryId = materialiseCategory(contract, now)
+                val txn = buildTransaction(
+                    parsed = parsed,
+                    accountId = accountId,
+                    merchantId = merchantRow?.id,
+                    categoryId = categoryId?.id,
+                    contractTitle = contract.title,
+                    smsTimestampMillis = smsTimestampMillis,
+                    a2Confidence = contract.a2Confidence,
+                    now = now,
+                )
+                val newTxnId = insertTransaction(txn)
+                if (contract.transferLinkWithTransactionId != null) {
+                    val linkType = contract.transferLinkType ?: "SELF_TRANSFER"
+                    database.transactionLinkDao().insertIgnore(
+                        TransactionLink(
+                            fromTransactionId = contract.transferLinkWithTransactionId,
+                            toTransactionId = newTxnId,
+                            linkType = linkType,
+                            confidence = contract.a2Confidence,
+                            createdAt = now,
+                        )
+                    )
+                    if (categoryId != null) {
+                        val otherTxn = database.transactionDao().getById(contract.transferLinkWithTransactionId)
+                        if (otherTxn != null && otherTxn.categoryId != categoryId.id) {
+                            database.transactionDao().update(otherTxn.copy(categoryId = categoryId.id))
+                        }
+                    }
+                }
+                newTxnId
+            }
         }
         Log.d(TAG, "A2 committed transactionId=$txnId parsedSmsId=${parsed.id} categoryId=${contract.categoryName}")
         A2Outcome(
@@ -198,10 +270,11 @@ class Agent2EntityResolver(
             prompt = fullPrompt,
             response = responseText,
             a2Confidence = contract.a2Confidence,
+            isDuplicate = (contract.duplicateOfTransactionId != null),
         )
     }
 
-    private suspend fun loadContext(): ResolutionContext {
+    private suspend fun loadContext(smsTimestampMillis: Long): ResolutionContext {
         val sources = sourceRepository.allOnce().take(MAX_SOURCES).map {
             ContextSource(
                 id = it.id,
@@ -227,10 +300,29 @@ class Agent2EntityResolver(
                 normalizedName = it.normalizedName, vpa = it.vpa,
             )
         }
+        val transactions = transactionRepository.getTransactionsInRange(
+            startMillis = smsTimestampMillis - 3 * 24 * 60 * 60 * 1000L,
+            endMillis = smsTimestampMillis + 3 * 24 * 60 * 60 * 1000L,
+            targetMillis = smsTimestampMillis
+        ).take(10).map {
+            ContextTransaction(
+                id = it.id,
+                accountId = it.accountId,
+                merchantId = it.merchantId,
+                amountPaise = it.amountPaise,
+                currency = it.currency,
+                direction = it.direction,
+                txnAtMillis = it.txnAtMillis,
+                channel = it.channel,
+                referenceNo = it.referenceNo,
+                title = it.title,
+            )
+        }
         return ResolutionContext(
             knownSources = sources,
             knownAccounts = accounts,
             knownMerchants = merchants,
+            recentTransactions = transactions,
         )
     }
 
@@ -391,6 +483,7 @@ data class ResolutionContext(
     val knownSources: List<ContextSource> = emptyList(),
     val knownAccounts: List<ContextAccount> = emptyList(),
     val knownMerchants: List<ContextMerchant> = emptyList(),
+    val recentTransactions: List<ContextTransaction> = emptyList(),
 ) {
     fun toBundleJson(): String = buildString {
         append("{\"knownSources\":[")
@@ -422,6 +515,21 @@ data class ResolutionContext(
                 .append(",\"normalizedName\":\"").append(escape(m.normalizedName)).append("\"")
                 .append('}')
         }
+        append("],\"recentTransactions\":[")
+        recentTransactions.forEachIndexed { i, t ->
+            if (i > 0) append(',')
+            append("{\"id\":").append(t.id)
+                .append(",\"accountId\":").append(t.accountId)
+                .append(",\"merchantId\":").append(t.merchantId ?: "null")
+                .append(",\"amountPaise\":").append(t.amountPaise)
+                .append(",\"currency\":").append(quoteOrNull(t.currency))
+                .append(",\"direction\":").append(quoteOrNull(t.direction))
+                .append(",\"txnAtMillis\":").append(t.txnAtMillis)
+                .append(",\"channel\":").append(quoteOrNull(t.channel))
+                .append(",\"referenceNo\":").append(quoteOrNull(t.referenceNo))
+                .append(",\"title\":").append(quoteOrNull(t.title))
+                .append('}')
+        }
         append("]}")
     }
     private fun escape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -451,4 +559,18 @@ data class ContextMerchant(
     val name: String,
     val normalizedName: String,
     val vpa: String?,
+)
+
+@Serializable
+data class ContextTransaction(
+    val id: Long,
+    val accountId: Long,
+    val merchantId: Long?,
+    val amountPaise: Long,
+    val currency: String,
+    val direction: String,
+    val txnAtMillis: Long,
+    val channel: String?,
+    val referenceNo: String?,
+    val title: String?,
 )

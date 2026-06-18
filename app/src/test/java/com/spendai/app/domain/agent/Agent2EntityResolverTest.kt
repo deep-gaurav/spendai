@@ -51,6 +51,8 @@ class Agent2EntityResolverTest {
     private lateinit var resolver: Agent2EntityResolver
     private lateinit var merchantRepo: MerchantRepository
     private lateinit var txnRepo: TransactionRepository
+    private lateinit var sourceRepo: FinancialSourceRepository
+    private lateinit var accountRepo: AccountRepository
     private val engine: GemmaInferenceEngine = mockk(relaxed = true)
 
     @Before
@@ -59,11 +61,11 @@ class Agent2EntityResolverTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        val sourceRepo = FinancialSourceRepository(db.financialSourceDao())
-        val accountRepo = AccountRepository(db.accountDao())
-        val categoryRepo = CategoryRepository(db.categoryDao())
+        sourceRepo = FinancialSourceRepository(db.financialSourceDao())
+        accountRepo = AccountRepository(db.accountDao())
         merchantRepo = MerchantRepository(db.merchantDao())
         txnRepo = TransactionRepository(db.transactionDao())
+        val categoryRepo = CategoryRepository(db.categoryDao())
         val smsRepo = SmsRepository(db.smsDao())
         coEvery { engine.state } returns MutableStateFlow(InferenceState.Ready("NPU"))
         resolver = Agent2EntityResolver(
@@ -256,5 +258,123 @@ class Agent2EntityResolverTest {
         }
         // No transaction was committed.
         assertEquals(0, txnRepo.getSince(0L).size)
+    }
+
+    private suspend fun createPreSeededTransaction(
+        amountPaise: Long = 50000L,
+        direction: String = "DEBIT"
+    ): Long {
+        val sourceId = sourceRepo.upsert(
+            com.spendai.app.data.local.entity.FinancialSource(
+                sourceKey = "VK-TEST-PRE",
+                deducedType = "UPI",
+                userLabel = "Test Source",
+                firstSeenTimestamp = System.currentTimeMillis(),
+                displayName = "Test Source",
+                bankName = "Test Bank",
+                instrumentType = "UNKNOWN",
+                status = "CONFIRMED",
+                confirmedAt = System.currentTimeMillis(),
+            )
+        )
+        val accountId = accountRepo.insert(
+            com.spendai.app.data.local.entity.Account(
+                sourceId = sourceId,
+                instrumentType = "ACCOUNT",
+                issuer = "Bank",
+                maskedNumber = "XXXX1234",
+                currency = "INR",
+                createdAt = System.currentTimeMillis(),
+            )
+        )
+        val rawId = db.smsDao().insert(
+            com.spendai.app.data.local.entity.RawSmsMessage(
+                senderAddress = "VK-TEST-PRE",
+                msgBody = "Rs $amountPaise pre-seeded",
+                timestamp = System.currentTimeMillis(),
+                status = com.spendai.app.data.local.entity.SmsStatus.PARSED,
+            )
+        )
+        val parsedId = db.parsedSmsDao().insert(
+            ParsedSms(
+                rawSmsId = rawId,
+                parsedAt = System.currentTimeMillis(),
+                kind = ParsedSmsKind.TRANSACTION.name,
+                amountPaise = amountPaise,
+                direction = direction,
+                a1RawJson = "{}",
+            )
+        )
+        return txnRepo.insert(
+            com.spendai.app.data.local.entity.Transaction(
+                accountId = accountId,
+                merchantId = null,
+                rawSmsId = rawId,
+                parsedSmsId = parsedId,
+                amountPaise = amountPaise,
+                currency = "INR",
+                direction = direction,
+                txnAtMillis = 1_700_000_000_000L,
+                createdAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    @Test
+    fun `A2 duplicate transaction response returns isDuplicate and does not insert new transaction`() = runTest {
+        val existingTxnId = createPreSeededTransaction(50000L, "DEBIT")
+
+        val a2Resp = """{
+            "source":  {"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedInstrumentType":"UNKNOWN","confidence":0.9},
+            "account": {"kind":"new","instrumentType":"ACCOUNT","issuer":"Bank","maskedNumber":"XXXX1234","currency":"INR","confidence":0.9},
+            "merchant":{"kind":"none","confidence":0.9},
+            "a2Confidence":0.9,
+            "duplicateOfTransactionId": $existingTxnId
+        }""".trimIndent()
+        coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable()) } returns flowOf(a2Resp)
+
+        val outcome = resolver.resolveAndCommit(parsedSms(), smsTimestampMillis = 1_700_000_000_000L)
+        assertTrue("outcome should be marked as duplicate", outcome.isDuplicate)
+        assertEquals(existingTxnId, outcome.transactionId)
+
+        // Only the pre-seeded transaction exists
+        assertEquals(1, txnRepo.getSince(0L).size)
+    }
+
+    @Test
+    fun `A2 transfer transaction response inserts a TransactionLink record and links them`() = runTest {
+        val existingTxnId = createPreSeededTransaction(22500000L, "DEBIT")
+
+        val a2Resp = """{
+            "source":  {"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedInstrumentType":"UNKNOWN","confidence":0.9},
+            "account": {"kind":"new","instrumentType":"ACCOUNT","issuer":"Bank","maskedNumber":"XXXX1234","currency":"INR","confidence":0.9},
+            "merchant":{"kind":"none","confidence":0.9},
+            "a2Confidence":0.9,
+            "categoryName":"Transfer",
+            "categoryEmoji":"🔀",
+            "transferLinkWithTransactionId": $existingTxnId,
+            "transferLinkType": "SELF_TRANSFER"
+        }""".trimIndent()
+        coEvery { engine.generatePredictionTracking(any<String>(), any<String>(), anyNullable()) } returns flowOf(a2Resp)
+
+        val outcome = resolver.resolveAndCommit(parsedSms(amountPaise = 22500000L, direction = "CREDIT"), smsTimestampMillis = 1_700_000_000_000L)
+        val newTxnId = outcome.transactionId
+
+        // Verify a new transaction was inserted
+        assertEquals(2, txnRepo.getSince(0L).size)
+
+        // Verify a TransactionLink was created
+        val links = db.transactionLinkDao().getAllOnce()
+        assertEquals(1, links.size)
+        val link = links[0]
+        assertEquals(existingTxnId, link.fromTransactionId)
+        assertEquals(newTxnId, link.toTransactionId)
+        assertEquals("SELF_TRANSFER", link.linkType)
+
+        // Verify both transactions now share the category (Transfer)
+        val newTxn = txnRepo.getById(newTxnId)
+        val oldTxn = txnRepo.getById(existingTxnId)
+        assertNotNull(newTxn?.categoryId)
+        assertEquals(newTxn?.categoryId, oldTxn?.categoryId)
     }
 }

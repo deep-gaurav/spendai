@@ -12,7 +12,12 @@ import kotlinx.coroutines.flow.Flow
  */
 class SmsRepository(private val dao: SmsDao) {
 
-    suspend fun insert(message: RawSmsMessage): Long = dao.insert(message)
+    suspend fun insert(message: RawSmsMessage): Long {
+        if (dao.existsDuplicate(message.senderAddress, message.msgBody, message.timestamp, 300_000L)) {
+            return -1L
+        }
+        return dao.insert(message)
+    }
     suspend fun getById(id: Long): RawSmsMessage? = dao.getById(id)
 
     /**

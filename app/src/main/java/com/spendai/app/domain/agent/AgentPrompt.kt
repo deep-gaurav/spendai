@@ -51,13 +51,13 @@ unless otherwise noted):
 }
 
 Rules:
-- If the message is an OTP, marketing, recharge offer, partial system
-  alert, or anything that is NOT a completed financial event, return
-  kind="IGNORE" and null everywhere except confidence (set to 1.0).
+- If the message is an OTP, marketing/promotional offer, coupon, recharge offer, partial system alert, pre-approved loan offer, or anything that is NOT a completed financial event on a real bank account, credit card, or active digital wallet, return kind="IGNORE" and null everywhere except confidence (set to 1.0).
+- Explicitly IGNORE promotional, marketing, or coupon reward messages (e.g. "Credited: Rs 100 Wallet Credits! Get 24% OFF" or "Lenskart has credited 500 Gold credits" or "You have received 50 reward points"). These are marketing promos, not real money transactions.
+- Note: Do NOT ignore real digital wallet top-up / loading events where the user adds money to a digital wallet (e.g., loading balance into Swiggy Money, Paytm, Amazon Pay, etc.). These represent real financial transactions and must be parsed as kind="TRANSACTION".
 - amountPaise is the absolute value, never negative. direction carries
   the sign: DEBIT means money left the user's account; CREDIT means
   money came in. For purchases and ATM withdrawals: DEBIT. For salary,
-  refunds, cashbacks: CREDIT.
+  refunds, cashbacks, and payments received towards a credit card (money incoming to credit card account): CREDIT.
 - txnAtMillis: derive from the message text when present (e.g.
   "on 10-Jun-2025 14:32"), else set null and we will use the SMS
   receive timestamp.
@@ -154,7 +154,10 @@ Schema (one object, top-level fields in this order):
   "a2Confidence": float in [0.0, 1.0],
   "title": str|null,
   "categoryName": str|null,
-  "categoryEmoji": str|null
+  "categoryEmoji": str|null,
+  "duplicateOfTransactionId": int|null,
+  "transferLinkWithTransactionId": int|null,
+  "transferLinkType": "SELF_TRANSFER"|"REFUND_OF"|"REVERSAL_OF"|"SPLIT_OF"|null
 }
 
 Rules:
@@ -183,6 +186,13 @@ Rules:
   entertainment->clapper, health->pill, transfer->arrows). Pick
   something the user will recognise at a glance. Defaults to a
   generic money emoji if omitted.
+- duplicateOfTransactionId (optional): If the current SMS reports a transaction that is already recorded in the "recentTransactions" list of the database context, specify the duplicate transaction's ID here.
+  * E.g., multiple credit SMS messages for a single transfer.
+  * E.g., a purchase confirmation SMS (from Swiggy, Zomato, Amazon, etc.) and a bank account debit SMS for the same purchase are duplicates. Map the duplicate to the existing bank transaction.
+  * CRITICAL: Do NOT mark a CREDIT as a duplicate of a DEBIT (or vice versa), even if they have the same amount and reference number. Opposite directions represent the two sides of a transfer, which should be linked using transferLinkWithTransactionId, not duplicateOfTransactionId.
+  If set, we will NOT create a new transaction, but will update the existing transaction with any new info.
+- transferLinkWithTransactionId (optional): If the current SMS represents the other side of a transfer, refund, or reversal transaction listed in the "recentTransactions" list of the database context, set this to the ID of that transaction. You can set BOTH duplicateOfTransactionId and transferLinkWithTransactionId if a transaction is a duplicate of a credit/debit and needs to be linked to the other side of a transfer.
+- transferLinkType (optional): If transferLinkWithTransactionId is set, specify the link type (e.g., "SELF_TRANSFER" for own-account transfers, "REFUND_OF" for refunds, "REVERSAL_OF" for reversals).
 """
 
     fun a2UserMessage(parsed: ParsedSms, contextBundle: String): String = buildString {

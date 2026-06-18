@@ -34,6 +34,9 @@ interface TransactionDao {
     @Query("SELECT * FROM spend_transaction WHERE txnAtMillis >= :sinceMillis ORDER BY txnAtMillis DESC")
     suspend fun getSince(sinceMillis: Long): List<Transaction>
 
+    @Query("SELECT * FROM spend_transaction WHERE txnAtMillis >= :startMillis AND txnAtMillis <= :endMillis ORDER BY abs(txnAtMillis - :targetMillis) ASC, id DESC")
+    suspend fun getTransactionsInRange(startMillis: Long, endMillis: Long, targetMillis: Long): List<Transaction>
+
     @Query("UPDATE spend_transaction SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: Long, status: String)
 

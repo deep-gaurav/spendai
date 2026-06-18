@@ -67,17 +67,19 @@ class SmsReceiver : BroadcastReceiver() {
         // (it suspends on Dispatchers.IO internally via Room's adapter).
         runBlocking(Dispatchers.Default) {
             try {
-                val pdus: Array<*> = intent.extras?.get("pdus") as? Array<*> ?: emptyArray<Any>()
-                val format = intent.extras?.getString("format")
+                val smsMessages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: emptyArray()
+                val groups = smsMessages.groupBy { it.displayOriginatingAddress }
                 val now = System.currentTimeMillis()
                 var insertedAny = false
 
-                for (pdu in pdus) {
-                    val sms = android.telephony.SmsMessage.createFromPdu(pdu as ByteArray, format)
+                for ((sender, parts) in groups) {
+                    val firstPart = parts.firstOrNull() ?: continue
+                    val body = parts.joinToString("") { it.displayMessageBody.orEmpty() }
+                    val timestamp = firstPart.timestampMillis
                     val message = RawSmsMessage(
-                        senderAddress = sms.displayOriginatingAddress.orEmpty(),
-                        msgBody = sms.displayMessageBody.orEmpty(),
-                        timestamp = if (sms.timestampMillis > 0L) sms.timestampMillis else now,
+                        senderAddress = sender.orEmpty(),
+                        msgBody = body,
+                        timestamp = if (timestamp > 0L) timestamp else now,
                         status = SmsStatus.UNPARSED,
                     )
                     val rowId = smsRepository.insert(message)

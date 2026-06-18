@@ -12,6 +12,7 @@ class TransactionRepository(private val dao: TransactionDao) {
     suspend fun getById(id: Long): Transaction? = dao.getById(id)
     suspend fun getByParsedSms(parsedSmsId: Long): Transaction? = dao.getByParsedSms(parsedSmsId)
     suspend fun getSince(sinceMillis: Long): List<Transaction> = dao.getSince(sinceMillis)
+    suspend fun getTransactionsInRange(startMillis: Long, endMillis: Long, targetMillis: Long): List<Transaction> = dao.getTransactionsInRange(startMillis, endMillis, targetMillis)
     fun observeAll(): Flow<List<Transaction>> = dao.observeAll()
 
     /**

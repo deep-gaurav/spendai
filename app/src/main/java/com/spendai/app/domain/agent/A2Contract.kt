@@ -41,6 +41,9 @@ data class A2Contract(
     val title: String? = null,
     val categoryName: String? = null,
     val categoryEmoji: String? = null,
+    val duplicateOfTransactionId: Long? = null,
+    val transferLinkWithTransactionId: Long? = null,
+    val transferLinkType: String? = null,
 )
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)

@@ -109,6 +109,7 @@ object IngestionLogA1 {
 /** A2 outcomes recorded on the audit row. */
 object IngestionLogA2 {
     const val COMMITTED = "COMMITTED"
+    const val DUPLICATE = "DUPLICATE"
     const val SKIPPED_A2 = "SKIPPED_A2"
     const val NOT_RUN = "NOT_RUN"
 }

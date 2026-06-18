@@ -36,6 +36,18 @@ interface SmsDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: RawSmsMessage): Long
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM raw_sms " +
+            "WHERE senderAddress = :senderAddress AND msgBody = :msgBody " +
+            "AND abs(timestamp - :timestamp) <= :timeWindowMillis LIMIT 1)"
+    )
+    suspend fun existsDuplicate(
+        senderAddress: String,
+        msgBody: String,
+        timestamp: Long,
+        timeWindowMillis: Long
+    ): Boolean
+
     /** One-shot read used by the worker; not a Flow. */
     @Query("SELECT * FROM raw_sms WHERE status = :status ORDER BY timestamp ASC")
     suspend fun getByStatusOnce(status: SmsStatus = SmsStatus.UNPARSED): List<RawSmsMessage>

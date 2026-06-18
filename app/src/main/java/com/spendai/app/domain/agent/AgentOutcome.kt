@@ -26,6 +26,7 @@ data class A2Outcome(
     val prompt: String,
     val response: String,
     val a2Confidence: Float,
+    val isDuplicate: Boolean = false,
 )
 
 /**
