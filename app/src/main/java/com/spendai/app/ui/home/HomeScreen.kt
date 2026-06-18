@@ -63,11 +63,11 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun HomeScreen(
     setupViewModel: SetupViewModel,
-    onRerunSetup: () -> Unit,
     onOpenReview: () -> Unit,
     onOpenTransactions: () -> Unit,
     onOpenDebugLog: () -> Unit = {},
     onOpenSources: () -> Unit = {},
+    onOpenModelSettings: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -108,11 +108,18 @@ fun HomeScreen(
                             leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
                         )
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.home_overflow_model_settings)) },
+                            onClick = {
+                                menuOpen = false
+                                onOpenModelSettings()
+                            },
+                            leadingIcon = { CartoonIcon(R.drawable.ic_refresh_cartoon, size = 24.dp) },
+                        )
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.home_overflow_rerun)) },
                             onClick = {
                                 menuOpen = false
                                 setupViewModel.reset()
-                                onRerunSetup()
                             },
                             leadingIcon = { CartoonIcon(R.drawable.ic_refresh_cartoon, size = 24.dp) },
                         )

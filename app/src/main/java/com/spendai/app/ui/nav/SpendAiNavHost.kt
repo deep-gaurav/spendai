@@ -34,6 +34,7 @@ import com.spendai.app.ui.insights.InsightsScreen
 import com.spendai.app.ui.insights.agent.AgenticInsightsScreen
 import com.spendai.app.ui.permissions.PermissionsScreen
 import com.spendai.app.ui.review.ReviewScreen
+import com.spendai.app.ui.settings.ModelSettingsScreen
 import com.spendai.app.ui.setup.SetupViewModel
 import com.spendai.app.ui.sources.SourcesScreen
 import com.spendai.app.ui.test.TestScreen
@@ -51,6 +52,7 @@ object Routes {
     const val INSIGHTS_AGENT = "insights/agent"
     const val REVIEW = "review"
     const val SOURCES = "sources"
+    const val MODEL_SETTINGS = "modelSettings"
     const val DEBUG_LOG = "debugLog"
     const val DEBUG_LOG_DETAIL = "debugLogDetail/{id}"
     fun debugLogDetail(id: Long) = "debugLogDetail/$id"
@@ -133,15 +135,11 @@ fun SpendAiNavHost(
             composable(Routes.HOME) {
                 HomeScreen(
                     setupViewModel = setupViewModel,
-                    onRerunSetup = {
-                        navController.navigate(Routes.PERMISSIONS) {
-                            popUpTo(Routes.HOME) { inclusive = true }
-                        }
-                    },
                     onOpenReview = { navController.navigate(Routes.REVIEW) },
                     onOpenTransactions = { navController.navigate(Routes.TRANSACTIONS) },
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
+                    onOpenModelSettings = { navController.navigate(Routes.MODEL_SETTINGS) },
                 )
             }
             composable(Routes.TRANSACTIONS) {
@@ -176,6 +174,9 @@ fun SpendAiNavHost(
             composable(Routes.REVIEW) { ReviewScreen() }
             composable(Routes.SOURCES) {
                 SourcesScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.MODEL_SETTINGS) {
+                ModelSettingsScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.DEBUG_LOG) {
                 DebugLogScreen(

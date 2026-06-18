@@ -60,6 +60,16 @@
     <string name="home_title">SpendAI</string>
     <string name="home_subtitle">You\'re all set. The main app ships in the next release.</string>
     <string name="home_overflow_rerun">Re-run setup</string>
+    <string name="home_overflow_model_settings">Model settings</string>
+    <string name="model_settings_title">Model settings</string>
+    <string name="model_settings_subtitle">Change the LLM provider, model, and key used for SMS parsing. Your saved permissions and downloaded data are not affected.</string>
+    <string name="model_settings_provider_label">LLM Provider</string>
+    <string name="model_settings_api_key_label">API Key / Token</string>
+    <string name="model_settings_api_key_optional">API Key / Token (Optional for Ollama)</string>
+    <string name="model_settings_model_label">Model Name</string>
+    <string name="model_settings_base_url_label">Base URL (Optional)</string>
+    <string name="model_settings_save">Save</string>
+    <string name="model_settings_verifying">Verifying connection…</string>
     <!-- Home screen (Phase 2.5) -->
     <string name="home_ingest_title">Ingest SMS</string>
     <string name="home_ingest_subtitle">Process a day, week, or month of bank SMS on-device.</string>
