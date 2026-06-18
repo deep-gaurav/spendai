@@ -2,6 +2,7 @@ package com.spendai.app.domain.agent
 
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.RawSmsMessage
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
@@ -207,6 +208,102 @@ Rules:
             "\"account\":{\"kind\":\"existing\",\"accountId\":1,\"confidence\":0.9}," +
             "\"merchant\":{\"kind\":\"existing\",\"merchantId\":1,\"confidence\":0.9}," +
             "\"a2Confidence\":0.9}"
+
+    // ---------------- A3: transaction auditor ----------------
+    
+    @Serializable
+    data class A3ContextTransaction(
+        val id: Long,
+        val rawSmsText: String,
+        val amountPaise: Long,
+        val direction: String,
+        val accountId: Long,
+        val accountLabel: String,
+        val merchantName: String?,
+        val referenceNo: String?,
+        val title: String?
+    )
+
+    @Serializable
+    data class A3CandidateInfo(
+        val rawSmsText: String,
+        val amountPaise: Long,
+        val direction: String,
+        val accountId: Long,
+        val accountLabel: String,
+        val merchantName: String?,
+        val referenceNo: String?,
+        val title: String?
+    )
+
+    const val A3_SYSTEM_INSTRUCTION = """
+You are a private, on-device financial transaction auditor.
+Your job is to review a candidate transaction (its raw SMS, parsed data, and resolved database entities) alongside the database context of the 20 closest recent transactions (including their raw SMS text and how they were committed).
+
+You must output a single JSON object that matches the schema below. Do not add prose, thinking, explanation, or code fences.
+
+Schema:
+{
+  "currentDecision": {
+    "decision": "COMMIT" | "DUPLICATE" | "IGNORE",
+    "accountId": integer | null,
+    "merchantId": integer | null,
+    "categoryId": integer | null,
+    "direction": "DEBIT" | "CREDIT" | null,
+    "amountPaise": integer | null,
+    "title": string | null,
+    "referenceNo": string | null,
+    "duplicateOfTransactionId": integer | null,
+    "transferLinkWithTransactionId": integer | null,
+    "transferLinkType": "SELF_TRANSFER" | "REFUND_OF" | "REVERSAL_OF" | "SPLIT_OF" | null
+  },
+  "modifications": [
+    {
+      "transactionId": integer,
+      "direction": "DEBIT" | "CREDIT" | null,
+      "accountId": integer | null,
+      "merchantId": integer | null,
+      "categoryId": integer | null,
+      "title": string | null,
+      "referenceNo": string | null,
+      "status": "DELETED" | null,
+      "transferLinkWithTransactionId": integer | null,
+      "transferLinkType": "SELF_TRANSFER" | "REFUND_OF" | "REVERSAL_OF" | "SPLIT_OF" | null
+    }
+  ]
+}
+
+Rules:
+1. **Deduplication**:
+   - If the current candidate is a duplicate of a transaction already in recentTransactions, set currentDecision.decision = "DUPLICATE" and duplicateOfTransactionId to that transaction's ID.
+   - A duplicate is when the same financial event is reported twice on the same account (or a bank debit and its corresponding purchase confirmation from a merchant like Swiggy/Zomato).
+   - CRITICAL: A CREDIT cannot be a duplicate of a DEBIT (and vice versa). Different directions are the two sides of a transfer, which must be linked, not marked as duplicates.
+2. **Transfer Linking**:
+   - If the current candidate represents the other side of a transfer (e.g. Debit from Slice and Credit to DBS, or Debit from Slice and Credit to IndusInd CC), set transferLinkWithTransactionId to the other transaction's ID, and transferLinkType to "SELF_TRANSFER".
+   - If the current candidate is a duplicate of an existing transaction but that existing transaction was NOT linked to the other side of the transfer, you should set decision = "DUPLICATE", duplicateOfTransactionId = existingId, AND set transferLinkWithTransactionId to the transfer partner's ID. We will link the existing transaction to the partner.
+3. **Double Check / Error Correction**:
+   - Review the current candidate transaction against its raw SMS. Agent 1 or Agent 2 might have made a mistake (e.g. wrong direction, wrong account, wrong merchant, wrong category, wrong amount, wrong title, or wrong reference number). If you find any mistakes, correct them by specifying the correct values in the corresponding fields of `currentDecision`. Use null for these fields if no correction is needed.
+   - Review the raw SMS texts of the recent transactions. If you notice a mistake in a previously committed transaction (e.g., A1/A2 parsed a credit card payment received as a DEBIT instead of a CREDIT), output a modification for that transactionId correcting its direction to "CREDIT" or other fields.
+   - If a previous transaction was a duplicate that was incorrectly committed, you can output a modification for it with status = "DELETED" to remove it.
+4. **Reminders & Fake Transactions**:
+   - Explicitly IGNORE payment reminders, bills due, or system alerts (e.g. loan payment due reminder, credit card due reminder) which do not represent a completed money transfer. If such a reminder was previously committed as a transaction, output a modification for its transactionId with status = "DELETED" to remove it.
+   - When a loan/credit card payment actually occurs, it should be logged as a DEBIT from the source bank account, and any corresponding CREDIT to the destination loan/card account should either be linked as a transfer or IGNORED so it's not double-counted (since it is the receiving end of a transfer).
+   - E.g., if a transaction reminder of 45K was issued on June 8th (and added as debit), and the actual transaction happened on June 10th (and also added as debit), you MUST ignore/delete the June 8th reminder (mark its transactionId as status = "DELETED") and keep the actual June 10th debit. If there is a credit for it on June 11th to the loan account, that credit should be IGNORED (or linked as a transfer partner of the June 10th debit, not recorded as income/credit, since it's just paying the loan). This avoids double counting and keeps the net debit to exactly 1 debit of 45K.
+"""
+
+    fun a3UserMessage(
+        recent: List<A3ContextTransaction>,
+        candidate: A3CandidateInfo
+    ): String = buildString {
+        append("Recent Transactions (Database Context):\n")
+        append(JSON.encodeToString(kotlinx.serialization.builtins.ListSerializer(A3ContextTransaction.serializer()), recent))
+        append("\n\nCurrent Candidate Transaction:\n")
+        append(JSON.encodeToString(A3CandidateInfo.serializer(), candidate))
+    }
+
+    const val A3_CORRECTIVE_PROMPT =
+        "Your previous response was not valid JSON. Respond with the JSON object only, " +
+            "no prose, no code fences, no explanation. Start with '{' and end with '}'."
 
     // ---------------- Probe / readiness ----------------
 

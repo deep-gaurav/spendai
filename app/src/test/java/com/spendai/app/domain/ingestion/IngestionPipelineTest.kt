@@ -19,6 +19,7 @@ import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
+import com.spendai.app.domain.agent.Agent3Auditor
 import com.spendai.app.domain.ingestion.sources.ListSmsSource
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.inference.InferenceState
@@ -83,6 +84,11 @@ class IngestionPipelineTest {
             transactionRepository = txnRepo,
             categoryRepository = categoryRepo,
         )
+        val a3 = Agent3Auditor(
+            engine = engine,
+            database = db,
+            transactionRepository = txnRepo,
+        )
         pipeline = IngestionPipeline(
             database = db,
             smsRepository = smsRepo,
@@ -90,6 +96,7 @@ class IngestionPipelineTest {
             ingestionLogRepository = ingestionLogRepo,
             agent1 = a1,
             agent2 = a2,
+            agent3 = a3,
         )
     }
 
@@ -113,6 +120,7 @@ class IngestionPipelineTest {
     private fun stubHappyPath() {
         val a1Resp = """{"kind":"TRANSACTION","amountPaise":10000,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
         val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedBankName":null,"suggestedInstrumentType":"UNKNOWN","suggestedDisplayName":null,"confidence":0.9},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Test Bank","maskedNumber":"XXXX1234","currency":"INR","confidence":0.9},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.9},"a2Confidence":0.9}"""
+        val a3Resp = """{"currentDecision":{"decision":"COMMIT"}}"""
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse"), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(a1Resp)
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry"), anyNullable<Int>()) } returns
@@ -121,6 +129,10 @@ class IngestionPipelineTest {
             kotlinx.coroutines.flow.flowOf(a2Resp)
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry"), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent3.audit"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a3Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent3.audit.retry"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a3Resp)
         coEvery { engine.generatePrediction(any<String>()) } returns a1Resp
     }
 
@@ -284,6 +296,7 @@ class IngestionPipelineTest {
         // with a low confidence value for the edit UI to display.
         val a1Resp = """{"kind":"TRANSACTION","amountPaise":500,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
         val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedBankName":null,"suggestedInstrumentType":"UNKNOWN","suggestedDisplayName":null,"confidence":0.4},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Test","maskedNumber":"XXXX1","currency":"INR","confidence":0.4},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.4},"a2Confidence":0.4}"""
+        val a3Resp = """{"currentDecision":{"decision":"COMMIT"}}"""
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse"), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(a1Resp)
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry"), anyNullable<Int>()) } returns
@@ -292,6 +305,10 @@ class IngestionPipelineTest {
             kotlinx.coroutines.flow.flowOf(a2Resp)
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry"), anyNullable<Int>()) } returns
             kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent3.audit"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a3Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent3.audit.retry"), anyNullable<Int>()) } returns
+            kotlinx.coroutines.flow.flowOf(a3Resp)
         coEvery { engine.generatePrediction(any<String>()) } returns a1Resp
 
         val now = System.currentTimeMillis()

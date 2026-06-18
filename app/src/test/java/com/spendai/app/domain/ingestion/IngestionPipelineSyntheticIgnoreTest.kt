@@ -17,6 +17,7 @@ import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
+import com.spendai.app.domain.agent.Agent3Auditor
 import com.spendai.app.domain.ingestion.sources.ListSmsSource
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.inference.InferenceState
@@ -91,6 +92,11 @@ class IngestionPipelineSyntheticIgnoreTest {
             transactionRepository = txnRepo,
             categoryRepository = categoryRepo,
         )
+        val a3 = Agent3Auditor(
+            engine = engine,
+            database = db,
+            transactionRepository = txnRepo,
+        )
         pipeline = IngestionPipeline(
             database = db,
             smsRepository = smsRepo,
@@ -98,6 +104,7 @@ class IngestionPipelineSyntheticIgnoreTest {
             ingestionLogRepository = ingestionLogRepo,
             agent1 = a1,
             agent2 = a2,
+            agent3 = a3,
         )
     }
 

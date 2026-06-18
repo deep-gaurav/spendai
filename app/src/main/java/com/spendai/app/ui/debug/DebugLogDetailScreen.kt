@@ -107,7 +107,7 @@ fun DebugLogDetailScreen(
                             error = log.a1Error,
                         )
                         AgentCard(
-                            label = "Agent 2",
+                            label = "Resolver & Auditor (A2 & A3)",
                             prompt = log.a2Prompt,
                             response = log.a2Response,
                             outcome = log.a2Outcome,

@@ -12,8 +12,10 @@ import com.spendai.app.data.repository.ParsedSmsRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.domain.agent.A1Outcome
 import com.spendai.app.domain.agent.A2FailureException
+import com.spendai.app.domain.agent.A3FailureException
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
+import com.spendai.app.domain.agent.Agent3Auditor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,7 +23,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * The single owner of the A1→A2 agent loop. Pure (no Android UI,
+ * The single owner of the A1→A2→A3 agent loop. Pure (no Android UI,
  * no notification, no WorkManager) so it can be unit-tested with a
  * mocked engine and a `ListSmsSource`.
  *
@@ -35,9 +37,9 @@ import java.time.ZoneId
  * ## Per-message flow
  *
  * The pipeline is a flat loop over the input SMS rows. A1 parses
- * (or reuses a cached `parsed_sms` row) and A2 resolves the
- * entities AND commits the `spend_transaction` row in a single
- * per-message call.
+ * (or reuses a cached `parsed_sms` row), A2 resolves the candidate
+ * transaction entities, and A3 audits the candidate, double-checks
+ * for mistakes, and commits it in real-time.
  *
  * ## Idempotency (v6)
  *
@@ -63,6 +65,7 @@ class IngestionPipeline(
     private val ingestionLogRepository: IngestionLogRepository,
     private val agent1: Agent1SmsParser,
     private val agent2: Agent2EntityResolver,
+    private val agent3: Agent3Auditor,
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
 
@@ -310,8 +313,8 @@ class IngestionPipeline(
         }
         onParsed()
 
-        val a2 = try {
-            agent2.resolveAndCommit(a1.parsed, smsTimestampMillis = message.timestamp)
+        val a2Candidate = try {
+            agent2.resolveCandidate(a1.parsed, smsTimestampMillis = message.timestamp)
         } catch (e: A2FailureException) {
             Log.w(TAG, "A2 failed for parsedSmsId=${a1.parsed.id}; skipping", e)
             smsRepository.markSkipped(message.id, e.message ?: e.javaClass.simpleName)
@@ -364,27 +367,109 @@ class IngestionPipeline(
             return
         }
 
+        val a3 = try {
+            agent3.reviewAndCommit(
+                candidate = a2Candidate.candidate,
+                rawSmsId = message.id,
+                rawSmsText = message.msgBody,
+                a2Prompt = a2Candidate.prompt,
+                a2Response = a2Candidate.response
+            )
+        } catch (e: A3FailureException) {
+            Log.w(TAG, "A3 failed for parsedSmsId=${a1.parsed.id}; skipping", e)
+            smsRepository.markSkipped(message.id, e.message ?: e.javaClass.simpleName)
+            emit(
+                IngestionProgress.MessageSkipped(
+                    messageIndex = messageIndex,
+                    totalMessages = totalMessages,
+                    reason = e.message ?: e.javaClass.simpleName,
+                )
+            )
+            recordLog(
+                rawSmsId = message.id,
+                parsedSmsId = a1.parsed.id,
+                transactionId = null,
+                ingestedAt = ingestedAt,
+                a1Outcome = IngestionLogA1.OK,
+                a1Prompt = a1.prompt,
+                a1Response = a1.response,
+                a1Confidence = a1.parsed.a1Confidence,
+                a2Outcome = IngestionLogA2.SKIPPED_A2,
+                a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${e.prompt}",
+                a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${e.response}",
+                a2Error = e.message ?: e.javaClass.simpleName,
+            )
+            onSkippedByA2()
+            return
+        } catch (t: Throwable) {
+            Log.w(TAG, "A3 unexpected throw for parsedSmsId=${a1.parsed.id}; skipping", t)
+            smsRepository.markSkipped(message.id, t.message ?: t.javaClass.simpleName)
+            emit(
+                IngestionProgress.MessageSkipped(
+                    messageIndex = messageIndex,
+                    totalMessages = totalMessages,
+                    reason = t.message ?: t.javaClass.simpleName,
+                )
+            )
+            recordLog(
+                rawSmsId = message.id,
+                parsedSmsId = a1.parsed.id,
+                transactionId = null,
+                ingestedAt = ingestedAt,
+                a1Outcome = IngestionLogA1.OK,
+                a1Prompt = a1.prompt,
+                a1Response = a1.response,
+                a1Confidence = a1.parsed.a1Confidence,
+                a2Outcome = IngestionLogA2.SKIPPED_A2,
+                a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}",
+                a2Response = "A2 Response:\n${a2Candidate.response}",
+                a2Error = t.message ?: t.javaClass.simpleName,
+            )
+            onSkippedByA2()
+            return
+        }
+
+        if (a3.isIgnored) {
+            smsRepository.markIgnoredProcessed(message.id, ingestedAt)
+            recordLog(
+                rawSmsId = message.id,
+                parsedSmsId = a1.parsed.id,
+                transactionId = null,
+                ingestedAt = ingestedAt,
+                a1Outcome = IngestionLogA1.OK,
+                a1Prompt = a1.prompt,
+                a1Response = a1.response,
+                a1Confidence = a1.parsed.a1Confidence,
+                a2Outcome = IngestionLogA2.NOT_RUN,
+                a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
+                a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
+                a2Confidence = a2Candidate.contract.a2Confidence
+            )
+            onIgnored()
+            return
+        }
+
         emit(
             IngestionProgress.MessageCommitted(
                 messageIndex = messageIndex,
                 totalMessages = totalMessages,
-                transactionId = a2.transactionId,
+                transactionId = a3.transactionId,
             )
         )
         smsRepository.markProcessed(message.id, ingestedAt)
         recordLog(
             rawSmsId = message.id,
             parsedSmsId = a1.parsed.id,
-            transactionId = a2.transactionId,
+            transactionId = a3.transactionId,
             ingestedAt = ingestedAt,
             a1Outcome = IngestionLogA1.OK,
             a1Prompt = a1.prompt,
             a1Response = a1.response,
             a1Confidence = a1.parsed.a1Confidence,
-            a2Outcome = if (a2.isDuplicate) IngestionLogA2.DUPLICATE else IngestionLogA2.COMMITTED,
-            a2Prompt = a2.prompt,
-            a2Response = a2.response,
-            a2Confidence = a2.a2Confidence,
+            a2Outcome = if (a3.isDuplicate) IngestionLogA2.DUPLICATE else IngestionLogA2.COMMITTED,
+            a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
+            a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
+            a2Confidence = a2Candidate.contract.a2Confidence,
         )
         onCommitted()
     }
@@ -453,8 +538,8 @@ class IngestionPipeline(
             return
         }
 
-        val a2 = try {
-            agent2.resolveAndCommit(cached, smsTimestampMillis = message.timestamp)
+        val a2Candidate = try {
+            agent2.resolveCandidate(cached, smsTimestampMillis = message.timestamp)
         } catch (e: A2FailureException) {
             Log.w(
                 TAG,
@@ -513,26 +598,105 @@ class IngestionPipeline(
             return
         }
 
+        val a3 = try {
+            agent3.reviewAndCommit(
+                candidate = a2Candidate.candidate,
+                rawSmsId = message.id,
+                rawSmsText = message.msgBody,
+                a2Prompt = a2Candidate.prompt,
+                a2Response = a2Candidate.response
+            )
+        } catch (e: A3FailureException) {
+            Log.w(TAG, "A3 retry on cache hit failed for parsedSmsId=${cached.id}; skipping", e)
+            smsRepository.markSkipped(message.id, "A3 retry: ${e.message ?: e.javaClass.simpleName}")
+            emit(
+                IngestionProgress.MessageSkipped(
+                    messageIndex = messageIndex,
+                    totalMessages = totalMessages,
+                    reason = "A3 retry: ${e.message ?: e.javaClass.simpleName}",
+                )
+            )
+            recordLog(
+                rawSmsId = message.id,
+                parsedSmsId = cached.id,
+                transactionId = null,
+                ingestedAt = ingestedAt,
+                a1Outcome = IngestionLogA1.OK,
+                a1Confidence = cached.a1Confidence,
+                a1Response = cached.a1RawJson.ifBlank { null },
+                a2Outcome = IngestionLogA2.SKIPPED_A2,
+                a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${e.prompt}",
+                a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${e.response}",
+                a2Error = e.message ?: e.javaClass.simpleName,
+            )
+            onSkippedByA2()
+            return
+        } catch (t: Throwable) {
+            Log.w(TAG, "A3 retry on cache hit unexpected throw for parsedSmsId=${cached.id}; skipping", t)
+            smsRepository.markSkipped(message.id, "A3 retry: ${t.message ?: t.javaClass.simpleName}")
+            emit(
+                IngestionProgress.MessageSkipped(
+                    messageIndex = messageIndex,
+                    totalMessages = totalMessages,
+                    reason = "A3 retry: ${t.message ?: t.javaClass.simpleName}",
+                )
+            )
+            recordLog(
+                rawSmsId = message.id,
+                parsedSmsId = cached.id,
+                transactionId = null,
+                ingestedAt = ingestedAt,
+                a1Outcome = IngestionLogA1.OK,
+                a1Confidence = cached.a1Confidence,
+                a1Response = cached.a1RawJson.ifBlank { null },
+                a2Outcome = IngestionLogA2.SKIPPED_A2,
+                a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}",
+                a2Response = "A2 Response:\n${a2Candidate.response}",
+                a2Error = t.message ?: t.javaClass.simpleName,
+            )
+            onSkippedByA2()
+            return
+        }
+
+        if (a3.isIgnored) {
+            smsRepository.markIgnoredProcessed(message.id, ingestedAt)
+            recordLog(
+                rawSmsId = message.id,
+                parsedSmsId = cached.id,
+                transactionId = null,
+                ingestedAt = ingestedAt,
+                a1Outcome = IngestionLogA1.OK,
+                a1Confidence = cached.a1Confidence,
+                a1Response = cached.a1RawJson.ifBlank { null },
+                a2Outcome = IngestionLogA2.NOT_RUN,
+                a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
+                a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
+                a2Confidence = a2Candidate.contract.a2Confidence
+            )
+            onIgnored()
+            return
+        }
+
         emit(
             IngestionProgress.MessageCommitted(
                 messageIndex = messageIndex,
                 totalMessages = totalMessages,
-                transactionId = a2.transactionId,
+                transactionId = a3.transactionId,
             )
         )
         smsRepository.markProcessed(message.id, ingestedAt)
         recordLog(
             rawSmsId = message.id,
             parsedSmsId = cached.id,
-            transactionId = a2.transactionId,
+            transactionId = a3.transactionId,
             ingestedAt = ingestedAt,
             a1Outcome = IngestionLogA1.OK,
             a1Confidence = cached.a1Confidence,
             a1Response = cached.a1RawJson.ifBlank { null },
-            a2Outcome = if (a2.isDuplicate) IngestionLogA2.DUPLICATE else IngestionLogA2.COMMITTED,
-            a2Prompt = a2.prompt,
-            a2Response = a2.response,
-            a2Confidence = a2.a2Confidence,
+            a2Outcome = if (a3.isDuplicate) IngestionLogA2.DUPLICATE else IngestionLogA2.COMMITTED,
+            a2Prompt = "A2 Prompt:\n${a2Candidate.prompt}\n\nA3 Prompt:\n${a3.prompt}",
+            a2Response = "A2 Response:\n${a2Candidate.response}\n\nA3 Response:\n${a3.response}",
+            a2Confidence = a2Candidate.contract.a2Confidence,
         )
         onCommitted()
     }

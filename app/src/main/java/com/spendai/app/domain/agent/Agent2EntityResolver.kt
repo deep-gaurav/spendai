@@ -114,6 +114,93 @@ class Agent2EntityResolver(
         parsed: ParsedSms,
         smsTimestampMillis: Long,
     ): A2Outcome = withContext(Dispatchers.IO) {
+        val outcome = resolveCandidate(parsed, smsTimestampMillis)
+        val contract = outcome.contract
+        val now = System.currentTimeMillis()
+        val txnId = database.withTransaction {
+            if (contract.duplicateOfTransactionId != null) {
+                val existingId = contract.duplicateOfTransactionId
+                val existingTxn = database.transactionDao().getById(existingId)
+                if (existingTxn != null) {
+                    var updatedTxn = existingTxn
+                    if (existingTxn.referenceNo.isNullOrEmpty() && !parsed.referenceNo.isNullOrEmpty()) {
+                        updatedTxn = updatedTxn.copy(referenceNo = parsed.referenceNo)
+                    }
+                    if (existingTxn.channel.isNullOrEmpty() && !parsed.channel.isNullOrEmpty()) {
+                        updatedTxn = updatedTxn.copy(channel = parsed.channel)
+                    }
+                    if (existingTxn.title.isNullOrEmpty() && !contract.title.isNullOrEmpty()) {
+                        updatedTxn = updatedTxn.copy(title = contract.title)
+                    }
+                    if (existingTxn.merchantId == null && outcome.candidate.merchantId != null) {
+                        updatedTxn = updatedTxn.copy(merchantId = outcome.candidate.merchantId)
+                    }
+                    if (existingTxn.categoryId == null && outcome.candidate.categoryId != null) {
+                        updatedTxn = updatedTxn.copy(categoryId = outcome.candidate.categoryId)
+                    }
+                    if (updatedTxn != existingTxn) {
+                        database.transactionDao().update(updatedTxn)
+                    }
+
+                    if (contract.transferLinkWithTransactionId != null) {
+                        val linkType = contract.transferLinkType ?: "SELF_TRANSFER"
+                        database.transactionLinkDao().insertIgnore(
+                            TransactionLink(
+                                fromTransactionId = contract.transferLinkWithTransactionId,
+                                toTransactionId = existingId,
+                                linkType = linkType,
+                                confidence = contract.a2Confidence,
+                                createdAt = now,
+                            )
+                        )
+                        if (outcome.candidate.categoryId != null) {
+                            val otherTxn = database.transactionDao().getById(contract.transferLinkWithTransactionId)
+                            if (otherTxn != null && otherTxn.categoryId != outcome.candidate.categoryId) {
+                                database.transactionDao().update(otherTxn.copy(categoryId = outcome.candidate.categoryId))
+                            }
+                            if (updatedTxn.categoryId != outcome.candidate.categoryId) {
+                                database.transactionDao().update(updatedTxn.copy(categoryId = outcome.candidate.categoryId))
+                            }
+                        }
+                    }
+                }
+                existingId
+            } else {
+                val newTxnId = insertTransaction(outcome.candidate)
+                if (contract.transferLinkWithTransactionId != null) {
+                    val linkType = contract.transferLinkType ?: "SELF_TRANSFER"
+                    database.transactionLinkDao().insertIgnore(
+                        TransactionLink(
+                            fromTransactionId = contract.transferLinkWithTransactionId,
+                            toTransactionId = newTxnId,
+                            linkType = linkType,
+                            confidence = contract.a2Confidence,
+                            createdAt = now,
+                        )
+                    )
+                    if (outcome.candidate.categoryId != null) {
+                        val otherTxn = database.transactionDao().getById(contract.transferLinkWithTransactionId)
+                        if (otherTxn != null && otherTxn.categoryId != outcome.candidate.categoryId) {
+                            database.transactionDao().update(otherTxn.copy(categoryId = outcome.candidate.categoryId))
+                        }
+                    }
+                }
+                newTxnId
+            }
+        }
+        A2Outcome(
+            transactionId = txnId,
+            prompt = outcome.prompt,
+            response = outcome.response,
+            a2Confidence = contract.a2Confidence,
+            isDuplicate = (contract.duplicateOfTransactionId != null),
+        )
+    }
+
+    suspend fun resolveCandidate(
+        parsed: ParsedSms,
+        smsTimestampMillis: Long,
+    ): A2CandidateOutcome = withContext(Dispatchers.IO) {
         require(engine.state.value is InferenceState.Ready) {
             "Engine not READY (state=${engine.state.value}). Call initialize() first."
         }
@@ -135,9 +222,6 @@ class Agent2EntityResolver(
         val firstParsed = firstText?.let { AgentJsonParse.tryParse(it, A2Contract.serializer()) }
         Log.d(TAG, "A2 first-try parse: ${if (firstParsed != null) "OK a2Confidence=${firstParsed.a2Confidence} title=${firstParsed.title} cat=${firstParsed.categoryName}/${firstParsed.categoryEmoji}" else "FAILED (will retry)"}")
 
-        // If firstParsed is non-null, firstText is necessarily non-null
-        // (firstParsed was derived from it). Same logic on the retry
-        // branch.
         val (contract, responseText) = if (firstParsed != null) {
             firstParsed to firstText
         } else {
@@ -154,10 +238,6 @@ class Agent2EntityResolver(
             if (retryParsed != null) {
                 retryParsed to retryText
             } else {
-                // Carry the prompt (always available) and the
-                // better of the two responses (retry if it ran, else
-                // first) so the audit row can show what the model
-                // actually emitted before failing.
                 val partial = retryText ?: firstText
                 throw A2FailureException(
                     prompt = fullPrompt,
@@ -170,107 +250,33 @@ class Agent2EntityResolver(
         }
         Log.d(TAG, "A2 final contract: a2Confidence=${contract.a2Confidence} title=${contract.title} cat=${contract.categoryName}/${contract.categoryEmoji}")
 
-        // Defensive: clamp confidence into [0, 1] in case the model
-        // emitted something outside the contract.
         require(contract.a2Confidence in 0f..1f) {
             "a2Confidence out of range: ${contract.a2Confidence}"
         }
 
         val now = System.currentTimeMillis()
-        val txnId = database.withTransaction {
-            if (contract.duplicateOfTransactionId != null) {
-                val existingId = contract.duplicateOfTransactionId
-                val existingTxn = database.transactionDao().getById(existingId)
-                if (existingTxn != null) {
-                    var updatedTxn = existingTxn
-                    if (existingTxn.referenceNo.isNullOrEmpty() && !parsed.referenceNo.isNullOrEmpty()) {
-                        updatedTxn = updatedTxn.copy(referenceNo = parsed.referenceNo)
-                    }
-                    if (existingTxn.channel.isNullOrEmpty() && !parsed.channel.isNullOrEmpty()) {
-                        updatedTxn = updatedTxn.copy(channel = parsed.channel)
-                    }
-                    if (existingTxn.title.isNullOrEmpty() && !contract.title.isNullOrEmpty()) {
-                        updatedTxn = updatedTxn.copy(title = contract.title)
-                    }
-                    val merchantRow = materialiseMerchant(contract.merchant, contract, now)
-                    if (existingTxn.merchantId == null && merchantRow != null) {
-                        updatedTxn = updatedTxn.copy(merchantId = merchantRow.id)
-                    }
-                    val categoryRow = materialiseCategory(contract, now)
-                    if (existingTxn.categoryId == null && categoryRow != null) {
-                        updatedTxn = updatedTxn.copy(categoryId = categoryRow.id)
-                    }
-                    if (updatedTxn != existingTxn) {
-                        database.transactionDao().update(updatedTxn)
-                    }
-
-                    if (contract.transferLinkWithTransactionId != null) {
-                        val linkType = contract.transferLinkType ?: "SELF_TRANSFER"
-                        database.transactionLinkDao().insertIgnore(
-                            TransactionLink(
-                                fromTransactionId = contract.transferLinkWithTransactionId,
-                                toTransactionId = existingId,
-                                linkType = linkType,
-                                confidence = contract.a2Confidence,
-                                createdAt = now,
-                            )
-                        )
-                        if (categoryRow != null) {
-                            val otherTxn = database.transactionDao().getById(contract.transferLinkWithTransactionId)
-                            if (otherTxn != null && otherTxn.categoryId != categoryRow.id) {
-                                database.transactionDao().update(otherTxn.copy(categoryId = categoryRow.id))
-                            }
-                            if (updatedTxn.categoryId != categoryRow.id) {
-                                database.transactionDao().update(updatedTxn.copy(categoryId = categoryRow.id))
-                            }
-                        }
-                    }
-                }
-                existingId
-            } else {
-                val sourceId = materialiseSource(contract.source, now)
-                val accountId = materialiseAccount(sourceId, contract.account, now)
-                val merchantRow = materialiseMerchant(contract.merchant, contract, now)
-                val categoryId = materialiseCategory(contract, now)
-                val txn = buildTransaction(
-                    parsed = parsed,
-                    accountId = accountId,
-                    merchantId = merchantRow?.id,
-                    categoryId = categoryId?.id,
-                    contractTitle = contract.title,
-                    smsTimestampMillis = smsTimestampMillis,
-                    a2Confidence = contract.a2Confidence,
-                    now = now,
-                )
-                val newTxnId = insertTransaction(txn)
-                if (contract.transferLinkWithTransactionId != null) {
-                    val linkType = contract.transferLinkType ?: "SELF_TRANSFER"
-                    database.transactionLinkDao().insertIgnore(
-                        TransactionLink(
-                            fromTransactionId = contract.transferLinkWithTransactionId,
-                            toTransactionId = newTxnId,
-                            linkType = linkType,
-                            confidence = contract.a2Confidence,
-                            createdAt = now,
-                        )
-                    )
-                    if (categoryId != null) {
-                        val otherTxn = database.transactionDao().getById(contract.transferLinkWithTransactionId)
-                        if (otherTxn != null && otherTxn.categoryId != categoryId.id) {
-                            database.transactionDao().update(otherTxn.copy(categoryId = categoryId.id))
-                        }
-                    }
-                }
-                newTxnId
-            }
+        val candidateTxn = database.withTransaction {
+            val sourceId = materialiseSource(contract.source, now)
+            val accountId = materialiseAccount(sourceId, contract.account, now)
+            val merchantRow = materialiseMerchant(contract.merchant, contract, now)
+            val categoryId = materialiseCategory(contract, now)
+            buildTransaction(
+                parsed = parsed,
+                accountId = accountId,
+                merchantId = merchantRow?.id,
+                categoryId = categoryId?.id,
+                contractTitle = contract.title,
+                smsTimestampMillis = smsTimestampMillis,
+                a2Confidence = contract.a2Confidence,
+                now = now,
+            )
         }
-        Log.d(TAG, "A2 committed transactionId=$txnId parsedSmsId=${parsed.id} categoryId=${contract.categoryName}")
-        A2Outcome(
-            transactionId = txnId,
+
+        A2CandidateOutcome(
+            candidate = candidateTxn,
+            contract = contract,
             prompt = fullPrompt,
             response = responseText,
-            a2Confidence = contract.a2Confidence,
-            isDuplicate = (contract.duplicateOfTransactionId != null),
         )
     }
 

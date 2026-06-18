@@ -18,6 +18,7 @@ import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
+import com.spendai.app.domain.agent.Agent3Auditor
 import com.spendai.app.domain.ingestion.sources.ListSmsSource
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.inference.InferenceState
@@ -77,6 +78,11 @@ class IngestionLogCaptureTest {
             transactionRepository = txnRepo,
             categoryRepository = categoryRepo,
         )
+        val a3 = Agent3Auditor(
+            engine = engine,
+            database = db,
+            transactionRepository = txnRepo,
+        )
         pipeline = IngestionPipeline(
             database = db,
             smsRepository = smsRepo,
@@ -84,6 +90,7 @@ class IngestionLogCaptureTest {
             ingestionLogRepository = ingestionLogRepo,
             agent1 = a1,
             agent2 = a2,
+            agent3 = a3,
         )
     }
 
@@ -102,6 +109,7 @@ class IngestionLogCaptureTest {
     fun `happy path writes a COMMITTED log row with prompt and response`() = runTest {
         val a1Resp = """{"kind":"TRANSACTION","amountPaise":10000,"currency":"INR","direction":"DEBIT","txnAtMillis":null,"channel":"UPI","sourceKeyHint":null,"merchantRaw":"Acme","cardLast4Hint":null,"accountLast4Hint":null,"referenceNo":null,"confidence":0.95}"""
         val a2Resp = """{"source":{"kind":"new","sourceKey":"VK-TEST","deducedType":"UPI","suggestedInstrumentType":"UNKNOWN","confidence":0.9},"account":{"kind":"new","instrumentType":"ACCOUNT","issuer":"Bank","maskedNumber":"XXXX1234","currency":"INR","confidence":0.9},"merchant":{"kind":"new","name":"Acme","normalizedName":"acme","vpa":null,"confidence":0.9},"a2Confidence":0.9}"""
+        val a3Resp = """{"currentDecision":{"decision":"COMMIT"}}"""
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse"), anyNullable()) } returns
             kotlinx.coroutines.flow.flowOf(a1Resp)
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent1.parse.retry"), anyNullable()) } returns
@@ -110,6 +118,10 @@ class IngestionLogCaptureTest {
             kotlinx.coroutines.flow.flowOf(a2Resp)
         coEvery { engine.generatePredictionTracking(any<String>(), eq("agent2.resolve.retry"), anyNullable()) } returns
             kotlinx.coroutines.flow.flowOf(a2Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent3.audit"), anyNullable()) } returns
+            kotlinx.coroutines.flow.flowOf(a3Resp)
+        coEvery { engine.generatePredictionTracking(any<String>(), eq("agent3.audit.retry"), anyNullable()) } returns
+            kotlinx.coroutines.flow.flowOf(a3Resp)
         coEvery { engine.generatePrediction(any<String>()) } returns a1Resp
 
         val now = System.currentTimeMillis()

@@ -21,6 +21,7 @@ import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.ingestion.IngestionPipeline
 import com.spendai.app.domain.agent.Agent1SmsParser
 import com.spendai.app.domain.agent.Agent2EntityResolver
+import com.spendai.app.domain.agent.Agent3Auditor
 import com.spendai.app.inference.GemmaInferenceEngine
 import com.spendai.app.worker.DailyParsingWorker
 import java.util.concurrent.TimeUnit
@@ -102,6 +103,13 @@ open class SpendAiApp : Application() {
             transactionRepository = transactionRepository,
         )
     }
+    val agent3Auditor: Agent3Auditor by lazy {
+        Agent3Auditor(
+            engine = gemmaInferenceEngine,
+            database = database,
+            transactionRepository = transactionRepository
+        )
+    }
 
     val ingestionPipeline: IngestionPipeline by lazy {
         IngestionPipeline(
@@ -111,6 +119,7 @@ open class SpendAiApp : Application() {
             ingestionLogRepository = ingestionLogRepository,
             agent1 = agent1SmsParser,
             agent2 = agent2EntityResolver,
+            agent3 = agent3Auditor,
         )
     }
 

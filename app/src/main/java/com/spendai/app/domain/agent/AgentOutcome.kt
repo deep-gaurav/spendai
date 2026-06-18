@@ -1,6 +1,7 @@
 package com.spendai.app.domain.agent
 
 import com.spendai.app.data.local.entity.ParsedSms
+import com.spendai.app.data.local.entity.Transaction
 
 /**
  * Agent 1's per-message result, augmented with the prompt and
@@ -29,6 +30,21 @@ data class A2Outcome(
     val isDuplicate: Boolean = false,
 )
 
+data class A2CandidateOutcome(
+    val candidate: Transaction,
+    val contract: A2Contract,
+    val prompt: String,
+    val response: String,
+)
+
+data class A3Outcome(
+    val transactionId: Long,
+    val prompt: String,
+    val response: String,
+    val isDuplicate: Boolean,
+    val isIgnored: Boolean,
+)
+
 /**
  * Thrown by [Agent2EntityResolver.resolveAndCommit] when both the
  * first attempt and the corrective retry fail to produce parseable
@@ -42,6 +58,12 @@ data class A2Outcome(
  * debug pane useless.
  */
 class A2FailureException(
+    val prompt: String,
+    val response: String?,
+    cause: Throwable,
+) : RuntimeException(cause.message ?: cause.javaClass.simpleName, cause)
+
+class A3FailureException(
     val prompt: String,
     val response: String?,
     cause: Throwable,
