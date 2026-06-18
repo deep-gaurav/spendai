@@ -115,4 +115,36 @@
     <string name="nav_home">Home</string>
     <string name="nav_transactions">Transactions</string>
     <string name="nav_insights">Insights</string>
+    <!-- Insights screen (auto insights) -->
+    <string name="insights_window_this_month">This month</string>
+    <string name="insights_window_last_30">Last 30 days</string>
+    <string name="insights_window_last_90">Last 90 days</string>
+
+    <string name="insights_kpi_spent">Spent</string>
+    <string name="insights_kpi_income">Income</string>
+    <string name="insights_kpi_transactions">Transactions</string>
+    <string name="insights_kpi_avg">Avg per txn</string>
+    <string name="insights_kpi_vs_previous">vs previous</string>
+    <string name="insights_kpi_delta_up">+%1$s%%</string>
+    <string name="insights_kpi_delta_down">%1$s%%</string>
+    <string name="insights_kpi_no_comparison">No prior data</string>
+
+    <string name="insights_card_category">Spending by category</string>
+    <string name="insights_card_daily">Daily spend</string>
+    <string name="insights_card_merchants">Top merchants</string>
+    <string name="insights_card_dow">Spending by day of week</string>
+
+    <string name="insights_dow_mon">Mon</string>
+    <string name="insights_dow_tue">Tue</string>
+    <string name="insights_dow_wed">Wed</string>
+    <string name="insights_dow_thu">Thu</string>
+    <string name="insights_dow_fri">Fri</string>
+    <string name="insights_dow_sat">Sat</string>
+    <string name="insights_dow_sun">Sun</string>
+
+    <string name="insights_other_slice">Other</string>
+    <string name="insights_no_spend_in_window">No spending in this window</string>
+    <string name="insights_empty_title">Nothing to plot yet</string>
+    <string name="insights_empty_subtitle">Ingest a few SMS messages and your insights will land here.</string>
+
 </resources>

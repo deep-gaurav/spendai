@@ -9,6 +9,7 @@ import androidx.room.migration.Migration
 import com.spendai.app.data.local.dao.AccountDao
 import com.spendai.app.data.local.dao.CategoryDao
 import com.spendai.app.data.local.dao.FinancialSourceDao
+import com.spendai.app.data.local.dao.InsightsDao
 import com.spendai.app.data.local.dao.IngestionLogDao
 import com.spendai.app.data.local.dao.LinkedSmsDao
 import com.spendai.app.data.local.dao.ManualCorrectionDao
@@ -94,6 +95,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun manualCorrectionDao(): ManualCorrectionDao
     abstract fun linkedSmsDao(): LinkedSmsDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun insightsDao(): InsightsDao
 
     companion object {
         private const val DB_NAME = "spendai.db"
