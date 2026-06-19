@@ -73,7 +73,7 @@ class EditTransactionViewModelTest {
             .allowMainThreadQueries()
             .build()
         txnRepo = TransactionRepository(db.transactionDao())
-        merchantRepo = MerchantRepository(db.merchantDao())
+        merchantRepo = MerchantRepository(db.merchantDao(), db.merchantMetadataDao())
         accountRepo = AccountRepository(db.accountDao())
         categoryRepo = CategoryRepository(db.categoryDao())
         smsRepo = SmsRepository(db.smsDao())

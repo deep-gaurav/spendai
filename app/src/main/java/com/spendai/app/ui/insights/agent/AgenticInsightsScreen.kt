@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Stop
@@ -64,6 +65,7 @@ fun AgenticInsightsScreen(
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
     val debugEnabled by viewModel.debugEnabled.collectAsStateWithLifecycle()
+    val verifierEnabled by viewModel.verifierEnabled.collectAsStateWithLifecycle()
     val debugLog by viewModel.debugLog.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -105,6 +107,18 @@ fun AgenticInsightsScreen(
                                    else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    IconButton(onClick = { viewModel.setVerifierEnabled(!verifierEnabled) }) {
+                        Icon(
+                            imageVector = Icons.Filled.VerifiedUser,
+                            contentDescription = if (verifierEnabled) {
+                                "Verifier on (tap to disable)"
+                            } else {
+                                "Verifier off (tap to enable)"
+                            },
+                            tint = if (verifierEnabled) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (status is AgenticStatus.Thinking || status is AgenticStatus.RunningTool) {
                         IconButton(onClick = { viewModel.cancel() }) {
                             Icon(Icons.Filled.Stop, contentDescription = "Stop")
@@ -127,7 +141,7 @@ fun AgenticInsightsScreen(
                     .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
                 verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
             ) {
-                StatusRow(status)
+                StatusRow(status, verifierEnabled)
                 AgenticChatInput(
                     onSend = viewModel::sendMessage,
                     enabled = status !is AgenticStatus.Thinking,
@@ -173,7 +187,7 @@ fun AgenticInsightsScreen(
 }
 
 @Composable
-private fun StatusRow(status: AgenticStatus) {
+private fun StatusRow(status: AgenticStatus, verifierEnabled: Boolean) {
     val (label, spinner) = when (status) {
         is AgenticStatus.Idle -> stringResource(R.string.agentic_status_idle) to false
         is AgenticStatus.Thinking -> stringResource(R.string.agentic_status_thinking) to true
@@ -196,6 +210,17 @@ private fun StatusRow(status: AgenticStatus) {
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Pill that surfaces the verifier state. Default is
+        // OFF, so this is the steady-state the user sees.
+        Text(
+            text = if (verifierEnabled) "Verifier on" else "Verifier off",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (verifierEnabled) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
     }
 }

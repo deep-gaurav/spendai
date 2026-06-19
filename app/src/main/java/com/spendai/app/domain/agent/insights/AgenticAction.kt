@@ -76,4 +76,41 @@ sealed class AgenticAction {
          */
         const val MAX_TURNS: Int = 6
     }
+
+    /**
+     * Save or clear user-defined merchant knowledge. The
+     * orchestrator runs the mutation through
+     * [com.spendai.app.domain.agent.insights.MerchantMutator],
+     * which is the only path from the LLM to the
+     * `merchant` and `merchant_metadata` tables. Safety
+     * boundary is enforced by the mutator's allowlist, not
+     * here.
+     *
+     * `matchByName` resolves the model-supplied name to a
+     * `merchant.id` via the same normaliser A2 uses, so the
+     * model can say "Deep G" without knowing the row id.
+     */
+    @Serializable
+    @SerialName("mutate_merchant")
+    data class MutateMerchant(
+        override val thought: String,
+        val matchByName: String? = null,
+        val matchById: Long? = null,
+        val setIsSelf: Boolean? = null,
+        val clearIsSelf: Boolean? = null,
+        val addMetadata: List<MetadataOp> = emptyList(),
+        val removeMetadata: List<String> = emptyList(),
+    ) : AgenticAction()
+
+    /**
+     * One NOTE / CATEGORY_HINT / LABEL entry the model wants
+     * to attach to a merchant. `kind` is the closed enum from
+     * [com.spendai.app.data.local.entity.MerchantMetadataKind];
+     * the mutator rejects anything outside that set.
+     */
+    @Serializable
+    data class MetadataOp(
+        val kind: String,
+        val value: String,
+    )
 }

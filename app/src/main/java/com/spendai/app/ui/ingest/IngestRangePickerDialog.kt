@@ -4,18 +4,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.DisplayMode
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,14 +27,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.HorizontalDivider
 import com.spendai.app.R
 import com.spendai.app.domain.ingestion.DateRange
-import com.spendai.app.ui.components.SectionLabel
-import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.theme.Dimens
 import java.time.Instant
 import java.time.ZoneId
@@ -39,21 +39,24 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
 /**
- * Full-screen Material 3 date-range picker dialog with a row of
- * preset chips above the calendar. Returns the picked [DateRange]
- * (or null on cancel).
+ * Full-screen sheet for picking an SMS ingest date range. Hosts a row of
+ * preset chips, the Material 3 [DateRangePicker], and a live preview of
+ * the selected range, with Cancel / Apply anchored in the top bar.
  *
  * UX:
- *  - Defaults: last 7 days (`[today - 6, today]`), so the picker
- *    opens on a useful range.
- *  - Presets: Today, This week, This month, Last month. Tapping
- *    a chip writes the new range into the picker state and the
- *    calendar scrolls to it.
- *  - "Apply" emits the current selection; "Cancel" emits null.
- *  - The custom range is treated as `[startDay, endDay]` inclusive
- *    on both ends as local days (half-open at the millisecond
- *    level, so any message received before midnight of the end
- *    day is included).
+ *  - Defaults: last 7 days (`[today - 6, today]`), so the picker opens
+ *    on a useful range.
+ *  - Presets: Today, This week, This month, Last month. Tapping a chip
+ *    writes the new range into the picker state and the calendar
+ *    scrolls to it.
+ *  - "Apply" emits the current selection; "Cancel" emits nothing.
+ *  - The custom range is treated as `[startDay, endDay]` inclusive on
+ *    both ends as local days (half-open at the millisecond level, so
+ *    any message received before midnight of the end day is included).
+ *
+ * The calendar uses `weight(1f, fill = false)` to shrink to the
+ * remaining space; its internal LazyColumn scrolls the months, so the
+ * whole dialog fits on small phones without clipping the action bar.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -87,82 +90,27 @@ fun IngestRangePickerDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        StickerCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Dimens.SpaceMd),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
-                SectionLabel(stringResource(R.string.ingest_picker_title))
-                Text(
-                    text = stringResource(R.string.ingest_picker_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    val applyEnabled = state.selectedStartDateMillis != null
 
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
-                    verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
-                ) {
-                    DateRangePreset.values().forEach { preset ->
-                        FilterChip(
-                            selected = activePreset == preset,
-                            onClick = {
-                                activePreset = preset
-                                val range = preset.toRange(now)
-                                val endAdjusted = (range.endMillis - 1L).coerceAtLeast(range.startMillis)
-                                state.setSelection(range.startMillis, endAdjusted)
-                            },
-                            label = { Text(stringResource(preset.labelRes)) },
-                        )
-                    }
-                }
-
-                DateRangePicker(
-                    state = state,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(520.dp),
-                    showModeToggle = true,
-                )
-
-                val preview = remember(
-                    state.selectedStartDateMillis,
-                    state.selectedEndDateMillis,
-                ) {
-                    val s = state.selectedStartDateMillis
-                    val e = state.selectedEndDateMillis
-                    if (s != null && e != null) {
-                        formatRange(s, e, zone)
-                    } else null
-                }
-                if (preview != null) {
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = {
                     Text(
-                        text = preview,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        text = stringResource(R.string.ingest_picker_title),
+                        style = MaterialTheme.typography.titleLarge,
                     )
-                } else {
-                    Text(
-                        text = stringResource(R.string.ingest_picker_no_selection),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
+                },
+                navigationIcon = {
                     TextButton(onClick = onDismiss) {
                         Text(stringResource(R.string.ingest_picker_cancel))
                     }
-                    Spacer(Modifier.height(Dimens.SpaceXs))
+                },
+                actions = {
                     TextButton(
                         onClick = {
                             val s = state.selectedStartDateMillis ?: return@TextButton
@@ -171,11 +119,86 @@ fun IngestRangePickerDialog(
                             val endDay = Instant.ofEpochMilli(e).atZone(zone).toLocalDate()
                             onConfirm(DateRange.dayRange(startDay, endDay, zone))
                         },
-                        enabled = state.selectedStartDateMillis != null,
+                        enabled = applyEnabled,
                     ) {
                         Text(stringResource(R.string.ingest_picker_apply))
                     }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                ),
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .navigationBarsPadding()
+                .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm),
+        ) {
+            Text(
+                text = stringResource(R.string.ingest_picker_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
+                verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
+            ) {
+                DateRangePreset.values().forEach { preset ->
+                    FilterChip(
+                        selected = activePreset == preset,
+                        onClick = {
+                            activePreset = preset
+                            val range = preset.toRange(now)
+                            val endAdjusted = (range.endMillis - 1L).coerceAtLeast(range.startMillis)
+                            state.setSelection(range.startMillis, endAdjusted)
+                        },
+                        label = { Text(stringResource(preset.labelRes)) },
+                    )
                 }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+            // Calendar shrinks to remaining space; the picker's own
+            // internal LazyColumn scrolls the months, so the whole
+            // dialog fits on small phones without clipping the bar.
+            DateRangePicker(
+                state = state,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .padding(vertical = Dimens.SpaceXs),
+                showModeToggle = true,
+            )
+
+            val preview = remember(
+                state.selectedStartDateMillis,
+                state.selectedEndDateMillis,
+            ) {
+                val s = state.selectedStartDateMillis
+                val e = state.selectedEndDateMillis
+                if (s != null && e != null) {
+                    formatRange(s, e, zone)
+                } else null
+            }
+            if (preview != null) {
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.ingest_picker_no_selection),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

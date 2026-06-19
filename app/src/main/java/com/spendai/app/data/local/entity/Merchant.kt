@@ -20,6 +20,16 @@ import androidx.room.PrimaryKey
  *
  * `categoryId` is a soft FK to [Category]. It is nullable because
  * some merchants (e.g. one-off P2P transfers) are not categorised.
+ *
+ * `isSelf` flips on when the user tells the app "this counterparty is
+ * actually me" (their own name appearing as the UPI handle, their own
+ * card nickname, etc.). Insights aggregates drop every transaction
+ * whose merchant is marked `isSelf`; A2 also returns `merchant.kind =
+ * "none"` for any future SMS that resolves to this row so the
+ * "Deep G" -> "user" attribution stops polluting the transaction
+ * history. Freeform context the user wants the model to remember
+ * ("pani puri vendor", etc.) lives in [MerchantMetadata], so this
+ * column stays a tight boolean.
  */
 @Entity(
     tableName = "merchant",
@@ -27,6 +37,7 @@ import androidx.room.PrimaryKey
         Index(value = ["normalizedName"], unique = true),
         Index("vpa"),
         Index("categoryId"),
+        Index("isSelf"),
     ],
     foreignKeys = [
         ForeignKey(
@@ -55,4 +66,7 @@ data class Merchant(
 
     @ColumnInfo(name = "firstSeenAt")
     val firstSeenAt: Long,
+
+    @ColumnInfo(name = "isSelf", defaultValue = "0")
+    val isSelf: Boolean = false,
 )

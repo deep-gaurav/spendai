@@ -72,7 +72,7 @@ open class SpendAiApp : Application() {
         AccountRepository(database.accountDao())
     }
     val merchantRepository: MerchantRepository by lazy {
-        MerchantRepository(database.merchantDao())
+        MerchantRepository(database.merchantDao(), database.merchantMetadataDao())
     }
     val categoryRepository: CategoryRepository by lazy {
         CategoryRepository(database.categoryDao())
@@ -156,6 +156,28 @@ open class SpendAiApp : Application() {
      * lifetime of the application so a rotation does not drop
      * the in-flight conversation.
      */
+    /**
+     * Allowlisted write path the Ask-AI flow uses to save
+     * user-defined merchant knowledge ("Deep G is me",
+     * "MOHAN KUSHWANA is pani puri vendor", etc.). Sibling
+     * of [sqlExecutor]; like it, it is the structural safety
+     * boundary between the LLM and the user's database.
+     */
+    val merchantMutator: com.spendai.app.domain.agent.insights.MerchantMutator by lazy {
+        com.spendai.app.domain.agent.insights.MerchantMutator(
+            database = database,
+            merchantRepository = merchantRepository,
+            repromptJobRepository = repromptJobRepository,
+        )
+    }
+
+    /**
+     * Multi-turn orchestrator for the agentic insights chat.
+     * Owns the conversation history and the ReAct loop; the
+     * ViewModel layer is a thin pass-through. Lives for the
+     * lifetime of the application so a rotation does not drop
+     * the in-flight conversation.
+     */
     val agenticInsightsAgent: com.spendai.app.domain.agent.insights.AgenticInsightsAgent by lazy {
         com.spendai.app.domain.agent.insights.AgenticInsightsAgent(
             engine = gemmaInferenceEngine,
@@ -163,6 +185,7 @@ open class SpendAiApp : Application() {
             verifier = com.spendai.app.domain.agent.insights.AnswerVerifier(
                 engine = gemmaInferenceEngine,
             ),
+            merchantMutator = merchantMutator,
         )
     }
 

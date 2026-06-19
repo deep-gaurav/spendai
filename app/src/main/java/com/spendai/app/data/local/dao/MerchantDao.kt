@@ -19,6 +19,9 @@ interface MerchantDao {
     @Update
     suspend fun update(row: Merchant)
 
+    @androidx.room.Delete
+    suspend fun delete(row: Merchant)
+
     @Query("SELECT * FROM merchant WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): Merchant?
 
@@ -45,4 +48,13 @@ interface MerchantDao {
      */
     @Query("SELECT * FROM merchant ORDER BY firstSeenAt DESC LIMIT :limit")
     suspend fun getRecent(limit: Int): List<Merchant>
+
+    /**
+     * Update only the `isSelf` flag. The mutator and the
+     * Merchants screen call this so a single column flip does
+     * not race with concurrent category writes from the
+     * pipeline.
+     */
+    @Query("UPDATE merchant SET isSelf = :isSelf WHERE id = :id")
+    suspend fun updateIsSelf(id: Long, isSelf: Boolean)
 }

@@ -70,7 +70,7 @@ class IngestionPipelineIdempotencyTest {
         val sourceRepo = FinancialSourceRepository(db.financialSourceDao())
         val accountRepo = AccountRepository(db.accountDao())
         val categoryRepo = CategoryRepository(db.categoryDao())
-        val merchantRepo = MerchantRepository(db.merchantDao())
+        val merchantRepo = MerchantRepository(db.merchantDao(), db.merchantMetadataDao())
         val txnRepo = TransactionRepository(db.transactionDao())
         val ingestionLogRepo = IngestionLogRepository(db.ingestionLogDao())
         coEvery { engine.state } returns MutableStateFlow(InferenceState.Ready("NPU"))

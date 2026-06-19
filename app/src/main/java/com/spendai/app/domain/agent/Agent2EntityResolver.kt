@@ -91,6 +91,15 @@ class Agent2EntityResolver(
         const val MAX_SOURCES = 20
         const val MAX_ACCOUNTS = 50
         const val A2_MAX_OUTPUT_TOKENS = 65536
+        /**
+         * Per-merchant cap on metadata entries shipped into the
+         * prompt bundle. Two is enough for the common cases
+         * (one NOTE + one CATEGORY_HINT, or NOTE + LABEL); a
+         * merchant with more than two entries is unusual and
+         * the remainder are dropped from the bundle without
+         * affecting the DB row.
+         */
+        const val MAX_METADATA_PER_MERCHANT = 2
         fun truncate(s: String?): String {
             if (s == null) return "<null>"
             return if (s.length <= LOG_TRUNCATE_CHARS) s
@@ -300,10 +309,24 @@ class Agent2EntityResolver(
                 currency = it.currency,
             )
         }
-        val merchants = merchantRepository.getRecent(MAX_MERCHANTS).map {
+        val merchantRows = merchantRepository.getRecent(MAX_MERCHANTS)
+        // Pre-load metadata for the merchant slice in one query, then
+        // group by merchantId so the prompt builder can inline the
+        // metadata next to each merchant. Bounded by MAX_MERCHANTS
+        // (100) so the prompt stays well under the 64K context.
+        val metadataByMerchant = merchantRepository
+            .getMetadataForMerchants(merchantRows.map { it.id })
+            .groupBy { it.merchantId }
+        val merchants = merchantRows.map { row ->
             ContextMerchant(
-                id = it.id, name = it.name,
-                normalizedName = it.normalizedName, vpa = it.vpa,
+                id = row.id,
+                name = row.name,
+                normalizedName = row.normalizedName,
+                vpa = row.vpa,
+                isSelf = row.isSelf,
+                metadata = metadataByMerchant[row.id].orEmpty()
+                    .take(MAX_METADATA_PER_MERCHANT)
+                    .map { ContextMerchantMetadata(kind = it.kind, value = it.value) },
             )
         }
         val transactions = transactionRepository.getTransactionsInRange(
@@ -519,7 +542,14 @@ data class ResolutionContext(
             append("{\"id\":").append(m.id)
                 .append(",\"name\":\"").append(escape(m.name)).append("\"")
                 .append(",\"normalizedName\":\"").append(escape(m.normalizedName)).append("\"")
-                .append('}')
+                .append(",\"isSelf\":").append(if (m.isSelf) "true" else "false")
+                .append(",\"metadata\":[")
+            m.metadata.forEachIndexed { j, md ->
+                if (j > 0) append(',')
+                append("{\"kind\":\"").append(escape(md.kind)).append("\"")
+                .append(",\"value\":\"").append(escape(md.value)).append("\"}")
+            }
+            append("]}")
         }
         append("],\"recentTransactions\":[")
         recentTransactions.forEachIndexed { i, t ->
@@ -565,6 +595,30 @@ data class ContextMerchant(
     val name: String,
     val normalizedName: String,
     val vpa: String?,
+    /**
+     * True when the user has flagged this merchant as themself.
+     * A2 returns `merchant.kind = "none"` for any incoming SMS
+     * whose counterparty resolves to a row with `isSelf = true`.
+     */
+    val isSelf: Boolean = false,
+    /**
+     * Freeform context the user has attached to this merchant
+     * (NOTE / CATEGORY_HINT / LABEL). Capped to
+     * [Agent2EntityResolver.MAX_METADATA_PER_MERCHANT] entries
+     * per merchant so the bundle stays small.
+     */
+    val metadata: List<ContextMerchantMetadata> = emptyList(),
+)
+
+/**
+ * Compact view of a [com.spendai.app.data.local.entity.MerchantMetadata]
+ * row for the A2 prompt bundle. Only the kind + value are
+ * forwarded; the merchantId is implicit (the bundle is keyed by
+ * merchant) and the timestamp is irrelevant to the model.
+ */
+data class ContextMerchantMetadata(
+    val kind: String,
+    val value: String,
 )
 
 @Serializable

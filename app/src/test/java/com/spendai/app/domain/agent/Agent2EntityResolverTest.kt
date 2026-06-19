@@ -63,7 +63,7 @@ class Agent2EntityResolverTest {
             .build()
         sourceRepo = FinancialSourceRepository(db.financialSourceDao())
         accountRepo = AccountRepository(db.accountDao())
-        merchantRepo = MerchantRepository(db.merchantDao())
+        merchantRepo = MerchantRepository(db.merchantDao(), db.merchantMetadataDao())
         txnRepo = TransactionRepository(db.transactionDao())
         val categoryRepo = CategoryRepository(db.categoryDao())
         val smsRepo = SmsRepository(db.smsDao())
@@ -162,7 +162,11 @@ class Agent2EntityResolverTest {
         // simplest check is to count unique normalized names in the
         // prompt and assert == 100.
         val merchantSection = prompt.substringAfter("\"knownMerchants\":[")
-            .substringBefore("]}")
+            // The knownMerchants array is followed by `],"recentTransactions"`,
+            // not `]}` (the new per-merchant `metadata:[]` contains
+            // `]}` which used to be the unambiguous end of the
+            // section). Anchor on the following key.
+            .substringBefore(",\"recentTransactions\":[")
         val nameOccurrences = Regex("\"name\":\"M(\\d+)\"").findAll(merchantSection).toList()
         assertEquals("bundle should contain exactly 100 merchants", 100, nameOccurrences.size)
         // The most-recently-seen are M0..M99 (descending firstSeenAt).

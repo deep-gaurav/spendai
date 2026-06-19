@@ -28,7 +28,7 @@ fun StickerCard(
     val surface = MaterialTheme.colorScheme.surface
     val shape = MaterialTheme.shapes.large
     val shadow = Dimens.ShadowMedium
-    val halftone = rememberHalftoneBrush(outline.copy(alpha = 0.18f))
+    val halftone = rememberHalftoneBrush(outline.copy(alpha = 0.08f))
 
     Box(
         modifier = modifier.padding(end = shadow, bottom = shadow),

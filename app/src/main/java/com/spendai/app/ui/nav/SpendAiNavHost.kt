@@ -34,6 +34,7 @@ import com.spendai.app.ui.edit.EditTransactionScreen
 import com.spendai.app.ui.home.HomeScreen
 import com.spendai.app.ui.insights.InsightsScreen
 import com.spendai.app.ui.insights.agent.AgenticInsightsScreen
+import com.spendai.app.ui.merchants.MerchantsScreen
 import com.spendai.app.ui.permissions.PermissionsScreen
 import com.spendai.app.ui.review.ReviewScreen
 import com.spendai.app.ui.settings.ModelSettingsScreen
@@ -52,6 +53,7 @@ object Routes {
     const val TRANSACTIONS = "transactions"
     const val INSIGHTS = "insights"
     const val INSIGHTS_AGENT = "insights/agent"
+    const val MERCHANTS = "merchants"
     const val REVIEW = "review"
     const val SOURCES = "sources"
     const val MODEL_SETTINGS = "modelSettings"
@@ -95,7 +97,8 @@ fun SpendAiNavHost(
                 if (current == null || current == Routes.HOME ||
                     current == Routes.TRANSACTIONS || current == Routes.INSIGHTS ||
                     current == Routes.INSIGHTS_AGENT || current == Routes.REVIEW ||
-                    current == Routes.SOURCES || current == Routes.MODEL_SETTINGS ||
+                    current == Routes.SOURCES || current == Routes.MERCHANTS ||
+                    current == Routes.MODEL_SETTINGS ||
                     current == Routes.DEBUG_LOG || current.startsWith("debugLogDetail")
                 ) {
                     navController.navigate(Routes.transactionDetail(link.id)) {
@@ -172,6 +175,7 @@ fun SpendAiNavHost(
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
                     onOpenModelSettings = { navController.navigate(Routes.MODEL_SETTINGS) },
+                    onOpenMerchants = { navController.navigate(Routes.MERCHANTS) },
                 )
             }
             composable(Routes.TRANSACTIONS) {
@@ -200,6 +204,11 @@ fun SpendAiNavHost(
             }
             composable(Routes.INSIGHTS_AGENT) {
                 AgenticInsightsScreen(
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.MERCHANTS) {
+                MerchantsScreen(
                     onBack = { navController.popBackStack() },
                 )
             }

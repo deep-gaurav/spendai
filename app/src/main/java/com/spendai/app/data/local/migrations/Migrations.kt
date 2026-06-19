@@ -414,3 +414,57 @@ val MIGRATION_7_8: Migration = object : Migration(7, 8) {
         )
     }
 }
+
+/**
+ * v8 -> v9: merchant self-flag and freeform metadata.
+ *
+ * Adds two things:
+ *
+ *  - `merchant.isSelf` (INTEGER NOT NULL DEFAULT 0). A boolean
+ *    flag the user flips when a counterparty is themself (their
+ *    own name in a UPI handle, their own card nickname, etc.).
+ *    Indexed because the InsightsDao exclusion predicate
+ *    `t.merchantId IN (SELECT id FROM merchant WHERE isSelf = 1)`
+ *    runs against every aggregate query.
+ *  - New `merchant_metadata` table. A small key-value store the
+ *    user fills via Ask AI or the Merchants management screen
+ *    with NOTE / CATEGORY_HINT / LABEL entries. A2 reads these
+ *    rows when it materialises the merchant into the prompt
+ *    bundle, so a `CATEGORY_HINT` becomes the merchant's category
+ *    on the next SMS. The unique index on `(merchantId, kind)`
+ *    is the dedup key for upserts.
+ *
+ * FK on `merchant_metadata.merchantId` is `ON DELETE CASCADE` so
+ * removing a merchant cleans up its notes. The new column has a
+ * default of 0 so all existing merchant rows stay at
+ * `isSelf = 0` after the migration.
+ */
+val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `merchant` ADD COLUMN `isSelf` INTEGER NOT NULL DEFAULT 0"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_merchant_isSelf` " +
+                "ON `merchant` (`isSelf`)"
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `merchant_metadata` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`merchantId` INTEGER NOT NULL, " +
+                "`kind` TEXT NOT NULL, " +
+                "`value` TEXT NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`merchantId`) REFERENCES `merchant`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE)"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_merchant_metadata_merchantId_kind` " +
+                "ON `merchant_metadata` (`merchantId`, `kind`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_merchant_metadata_merchantId` " +
+                "ON `merchant_metadata` (`merchantId`)"
+        )
+    }
+}

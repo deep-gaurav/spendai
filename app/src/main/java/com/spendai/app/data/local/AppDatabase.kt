@@ -14,6 +14,7 @@ import com.spendai.app.data.local.dao.IngestionLogDao
 import com.spendai.app.data.local.dao.LinkedSmsDao
 import com.spendai.app.data.local.dao.ManualCorrectionDao
 import com.spendai.app.data.local.dao.MerchantDao
+import com.spendai.app.data.local.dao.MerchantMetadataDao
 import com.spendai.app.data.local.dao.ParsedSmsDao
 import com.spendai.app.data.local.dao.PendingReviewDao
 import com.spendai.app.data.local.dao.RepromptJobDao
@@ -26,6 +27,7 @@ import com.spendai.app.data.local.entity.FinancialSource
 import com.spendai.app.data.local.entity.IngestionLog
 import com.spendai.app.data.local.entity.ManualCorrection
 import com.spendai.app.data.local.entity.Merchant
+import com.spendai.app.data.local.entity.MerchantMetadata
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.PendingReview
 import com.spendai.app.data.local.entity.RawSmsMessage
@@ -37,6 +39,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_2_3
 import com.spendai.app.data.local.migrations.MIGRATION_5_6
 import com.spendai.app.data.local.migrations.MIGRATION_6_7
 import com.spendai.app.data.local.migrations.MIGRATION_7_8
+import com.spendai.app.data.local.migrations.MIGRATION_8_9
 
 /**
  * The single Room database for SpendAI.
@@ -44,7 +47,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_7_8
  * Schema is exported to `app/schemas/` (configured in app/build.gradle.kts)
  * so we can diff versions in code review and write migration tests.
  *
- * ## v3 → v5 (no migration)
+ * ## v3 -> v5 (no migration)
  *
  * v5 added:
  *  - The new `category` table (dynamic categories created by A2).
@@ -53,28 +56,35 @@ import com.spendai.app.data.local.migrations.MIGRATION_7_8
  *  - `Account.colorHex`.
  *
  * The user explicitly chose to wipe app data for this upgrade, so
- * [fallbackToDestructiveMigration] is enabled and no v3 → v5
+ * [fallbackToDestructiveMigration] is enabled and no v3 -> v5
  * migration is shipped. Any pre-existing user who happens to keep
  * their data will have their database dropped and recreated; any
  * v1 or v2 user still on those schemas runs the existing
  * MIGRATION_1_2 and MIGRATION_2_3 chain first and then hits the
- * destructive fallback for the v3 → v5 step.
+ * destructive fallback for the v3 -> v5 step.
  *
- * ## v5 → v6
+ * ## v5 -> v6
  *
  * Adds `raw_sms.processedAt` and `raw_sms.lastError` for
  * idempotency. See MIGRATION_5_6 for the column adds and the
  * supporting composite index.
  *
- * ## v6 → v7
+ * ## v6 -> v7
  *
  * Adds the `manual_correction` table and an `ingestion_log.userPrompt`
  * column for the reprompt lesson-injection flow.
  *
- * ## v7 → v8
+ * ## v7 -> v8
  *
  * Adds the `reprompt_job` table for durable execution tracking of
  * A3 reprompts. See MIGRATION_7_8.
+ *
+ * ## v8 -> v9
+ *
+ * Adds `merchant.isSelf` and the `merchant_metadata` table for
+ * user-defined merchant knowledge (counterparty-is-me, freeform
+ * notes, category hints). The InsightsDao exclusion predicate
+ * now also drops transactions whose merchant has `isSelf = 1`.
  */
 @Database(
     entities = [
@@ -83,6 +93,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_7_8
         ParsedSms::class,
         Account::class,
         Merchant::class,
+        MerchantMetadata::class,
         Transaction::class,
         TransactionLink::class,
         PendingReview::class,
@@ -91,7 +102,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_7_8
         ManualCorrection::class,
         RepromptJob::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -102,6 +113,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun parsedSmsDao(): ParsedSmsDao
     abstract fun accountDao(): AccountDao
     abstract fun merchantDao(): MerchantDao
+    abstract fun merchantMetadataDao(): MerchantMetadataDao
     abstract fun transactionDao(): TransactionDao
     abstract fun transactionLinkDao(): TransactionLinkDao
     abstract fun pendingReviewDao(): PendingReviewDao
@@ -115,13 +127,14 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DB_NAME = "spendai.db"
 
-        /** All known migrations in order. v3 → v5 is destructive. */
+        /** All known migrations in order. v3 -> v5 is destructive. */
         val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
+            MIGRATION_8_9,
         )
 
         @Volatile

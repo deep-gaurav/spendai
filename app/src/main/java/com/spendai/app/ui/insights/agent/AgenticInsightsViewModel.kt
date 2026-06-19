@@ -35,6 +35,15 @@ class AgenticInsightsViewModel(application: Application) : AndroidViewModel(appl
     val debugLog: StateFlow<List<com.spendai.app.domain.agent.insights.AgenticDebugEntry>> = agent.debugLog
     val debugEnabled: StateFlow<Boolean> = agent.debugEnabled
 
+    /**
+     * Verifier toggle. Defaults to OFF so the chat feels
+     * snappy. The chat screen exposes a button to flip it
+     * back on when the user wants the ground-truth check
+     * (re-prompts the model when the answer cites facts
+     * not present in the SQL result rows).
+     */
+    val verifierEnabled: StateFlow<Boolean> = agent.verifierEnabled
+
     fun sendMessage(text: String) {
         agent.sendMessage(text)
     }
@@ -49,6 +58,10 @@ class AgenticInsightsViewModel(application: Application) : AndroidViewModel(appl
 
     fun toggleDebug() {
         agent.toggleDebug()
+    }
+
+    fun setVerifierEnabled(enabled: Boolean) {
+        agent.setVerifierEnabled(enabled)
     }
 
     /**
@@ -80,6 +93,10 @@ class AgenticInsightsViewModel(application: Application) : AndroidViewModel(appl
                 is AgenticAction.Answer -> "Assistant: ${parsed.text}" +
                     if (parsed.charts.isNotEmpty()) "\nCharts: ${parsed.charts.size}" else ""
                 is AgenticAction.QueryDatabase -> "Assistant (tool call):\n${parsed.sql}"
+                is AgenticAction.MutateMerchant -> "Assistant (mutate_merchant):\n" +
+                    "match=${parsed.matchByName ?: parsed.matchById} " +
+                    "setIsSelf=${parsed.setIsSelf} clearIsSelf=${parsed.clearIsSelf} " +
+                    "addMetadata=${parsed.addMetadata} removeMetadata=${parsed.removeMetadata}"
                 null -> "Assistant: ${msg.streamedText}"
             }
         }
@@ -87,6 +104,21 @@ class AgenticInsightsViewModel(application: Application) : AndroidViewModel(appl
         is AgenticInsightsMessage.ToolResultMessage -> {
             if (msg.error != null) "Tool error: ${msg.error}"
             else "Tool result: ${msg.rowCount} row(s)"
+        }
+        is AgenticInsightsMessage.MutationToolCallMessage -> {
+            val a = msg.action
+            "Tool call (mutate_merchant):\n" +
+                "match=${a.matchByName ?: a.matchById} " +
+                "setIsSelf=${a.setIsSelf} clearIsSelf=${a.clearIsSelf} " +
+                "addMetadata=${a.addMetadata} removeMetadata=${a.removeMetadata}"
+        }
+        is AgenticInsightsMessage.MutationToolResultMessage -> {
+            val r = msg.result
+            if (r.error != null) "Tool error: ${r.error}"
+            else "Mutation: matched=${r.matchedMerchantName} isSelf=${r.isSelfNewValue} " +
+                "added=${r.metadataAdded.size} removed=${r.metadataRemoved.size} " +
+                "affected=${r.affectedTransactionIds.size} " +
+                "selfLinks=${r.selfTransferLinksWritten} reprompts=${r.repromptsEnqueued}"
         }
         is AgenticInsightsMessage.SystemMessage -> "System: ${msg.text}"
     }

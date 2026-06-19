@@ -18,19 +18,25 @@ import kotlinx.coroutines.flow.Flow
  * dominant currency without an extra rewrite — the UI side
  * picks the top-currency row from the result.
  *
- * ## Self-transfer exclusion
+ * ## Self-exclusion
  *
- * Every query also excludes transactions that participate
- * in a `transaction_link` row with `linkType = 'SELF_TRANSFER'`.
- * A self-transfer is a user-initiated move of money between
- * two of their own accounts (e.g. card → wallet top-up); it
- * is recorded as a DEBIT on one account and a CREDIT on
- * another. Including both sides in the spend / income
- * aggregates would double-count the user's money and
- * dominate the picture (a single 2L self-transfer is not
- * "spending" — the user just moved their own money). The
- * `NOT EXISTS` subquery is NULL-safe and walks the small
- * `transaction_link` table efficiently.
+ * Every query also drops transactions that are self-events,
+ * defined as either:
+ *
+ *  - The transaction participates in a `transaction_link` row
+ *    with `linkType = 'SELF_TRANSFER'` (user-initiated move
+ *    between two of their own accounts, e.g. card to wallet
+ *    top-up).
+ *  - The transaction's merchant is marked `isSelf = 1` in the
+ *    `merchant` table (counterparty is the user themself —
+ *    their own name in a UPI handle, their own card
+ *    nickname, etc.).
+ *
+ * Both forms drop the row from every spend / income / category
+ * / merchant aggregate. The exclusion pattern is the only
+ * source of truth for "ignore in insights only"; the agentic
+ * Ask-AI SQL gateway's schema block mirrors the same predicate
+ * so the model's queries stay consistent.
  *
  * The queries return `Flow` so the screen auto-refreshes the
  * moment a new ingestion run lands more transactions in
@@ -42,7 +48,8 @@ interface InsightsDao {
     /**
      * One row per currency, per direction, in the active range.
      * Empty rows are omitted — i.e. a window with no credits
-     * has no `CREDIT` row at all. Self-transfers are excluded.
+     * has no `CREDIT` row at all. Self-events (transfers and
+     * `isSelf` merchants) are excluded.
      */
     @Query(
         """
@@ -59,6 +66,9 @@ interface InsightsDao {
                 AND (l.fromTransactionId = spend_transaction.id
                      OR l.toTransactionId = spend_transaction.id)
           )
+          AND (merchantId IS NULL OR merchantId NOT IN (
+              SELECT id FROM merchant WHERE isSelf = 1
+          ))
         GROUP BY direction, currency
         """
     )
@@ -73,7 +83,7 @@ interface InsightsDao {
      * for uncategorised transactions) for DEBIT spend only.
      * Ordered by `SUM(amountPaise) DESC` so the donut chart can
      * group the tail into an "Other" slice client-side. Self-
-     * transfers are excluded so they don't bloat the donut.
+     * events are excluded so they don't bloat the donut.
      */
     @Query(
         """
@@ -94,6 +104,9 @@ interface InsightsDao {
                 AND (l.fromTransactionId = t.id
                      OR l.toTransactionId = t.id)
           )
+          AND (t.merchantId IS NULL OR t.merchantId NOT IN (
+              SELECT id FROM merchant WHERE isSelf = 1
+          ))
         GROUP BY t.categoryId, t.currency
         ORDER BY totalPaise DESC
         """
@@ -109,7 +122,7 @@ interface InsightsDao {
      * Top-N merchants by DEBIT spend, in the active range.
      * `currency` is part of the GROUP BY so a multi-currency
      * device stays correct; the UI picks the dominant currency
-     * before rendering. Self-transfers are excluded.
+     * before rendering. Self-events are excluded.
      */
     @Query(
         """
@@ -131,6 +144,7 @@ interface InsightsDao {
                 AND (l.fromTransactionId = t.id
                      OR l.toTransactionId = t.id)
           )
+          AND m.isSelf = 0
         GROUP BY m.id, t.currency
         ORDER BY totalPaise DESC
         LIMIT :limit
@@ -150,7 +164,7 @@ interface InsightsDao {
      * by DayOfWeek — SQLite date functions are not worth the
      * portability cost and Kotlin is trivial here.
      *
-     * Self-transfers are excluded so the daily / day-of-week
+     * Self-events are excluded so the daily / day-of-week
      * series reflects real spend, not internal moves.
      */
     @Query(
@@ -166,6 +180,9 @@ interface InsightsDao {
                 AND (l.fromTransactionId = spend_transaction.id
                      OR l.toTransactionId = spend_transaction.id)
           )
+          AND (merchantId IS NULL OR merchantId NOT IN (
+              SELECT id FROM merchant WHERE isSelf = 1
+          ))
         ORDER BY txnAtMillis ASC
         """
     )

@@ -68,6 +68,7 @@ fun HomeScreen(
     onOpenDebugLog: () -> Unit = {},
     onOpenSources: () -> Unit = {},
     onOpenModelSettings: () -> Unit = {},
+    onOpenMerchants: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -96,6 +97,14 @@ fun HomeScreen(
                             onClick = {
                                 menuOpen = false
                                 onOpenSources()
+                            },
+                            leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Merchants") },
+                            onClick = {
+                                menuOpen = false
+                                onOpenMerchants()
                             },
                             leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
                         )

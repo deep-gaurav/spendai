@@ -44,6 +44,8 @@ fun AgenticMessageBubble(
         is AgenticInsightsMessage.AssistantMessage -> AssistantBubble(message, modifier)
         is AgenticInsightsMessage.ToolCallMessage -> ToolCallBubble(message, modifier)
         is AgenticInsightsMessage.ToolResultMessage -> ToolResultBubble(message, modifier)
+        is AgenticInsightsMessage.MutationToolCallMessage -> MutationToolCallBubble(message, modifier)
+        is AgenticInsightsMessage.MutationToolResultMessage -> MutationToolResultBubble(message, modifier)
         is AgenticInsightsMessage.SystemMessage -> SystemBubble(message, modifier)
         is AgenticInsightsMessage.VerifierMessage -> VerifierBubble(message, modifier)
     }
@@ -143,6 +145,12 @@ private fun AssistantBubble(
                 }
             }
             is AgenticAction.QueryDatabase -> {
+                StreamingThinkingBubble(
+                    text = msg.streamedText,
+                    showSpinner = msg.status == AssistantStatus.Streaming,
+                )
+            }
+            is AgenticAction.MutateMerchant -> {
                 StreamingThinkingBubble(
                     text = msg.streamedText,
                     showSpinner = msg.status == AssistantStatus.Streaming,
@@ -366,4 +374,167 @@ private fun renderRowsPreview(columns: List<String>, rowCount: Int): String {
     if (rowCount == 0) return "(no rows)"
     val headerLine = columns.take(6).joinToString(" | ")
     return "$headerLine\n(${rowCount} rows; the full result has been sent back to the model)"
+}
+
+/**
+ * Compact bubble for a merchant-mutation tool call. Renders
+ * a short summary of the action (which merchant, which
+ * field changes) so the user sees what the model is about
+ * to commit before it actually runs. The full details live
+ * in the matching [MutationToolResultBubble] below.
+ */
+@Composable
+private fun MutationToolCallBubble(
+    msg: AgenticInsightsMessage.MutationToolCallMessage,
+    modifier: Modifier,
+) {
+    val a = msg.action
+    val summary = buildString {
+        append("merchant \"")
+        append(a.matchByName ?: a.matchById?.toString() ?: "?")
+        append("\"")
+        if (a.setIsSelf == true) append(" -> isSelf=true")
+        if (a.clearIsSelf == true) append(" -> isSelf=false")
+        if (a.addMetadata.isNotEmpty()) {
+            append("; add ")
+            append(a.addMetadata.joinToString(", ") { "${it.kind}=${it.value}" })
+        }
+        if (a.removeMetadata.isNotEmpty()) {
+            append("; remove kinds ")
+            append(a.removeMetadata.joinToString(", "))
+        }
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpaceXs),
+        ) {
+            when (val s = msg.status) {
+                is ToolCallStatus.Running -> CircularProgressIndicator(
+                    modifier = Modifier.width(14.dp),
+                    strokeWidth = 2.dp,
+                )
+                is ToolCallStatus.Complete -> Text(
+                    text = "+",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+                is ToolCallStatus.Failed -> Text(
+                    text = "!",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Text(
+                text = "mutate_merchant",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (msg.status is ToolCallStatus.Failed) {
+                Text(
+                    text = " (failed)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        Text(
+            text = a.thought,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 22.dp),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 22.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(Dimens.SpaceXs),
+        ) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+    }
+}
+
+/**
+ * Result of a merchant-mutation tool call. Surfaces the
+ * counters from [com.spendai.app.domain.agent.insights.MerchantMutator.MutationResult]
+ * in a human-readable form so the user can see what was
+ * actually saved and how many reprompts were enqueued.
+ */
+@Composable
+private fun MutationToolResultBubble(
+    msg: AgenticInsightsMessage.MutationToolResultMessage,
+    modifier: Modifier,
+) {
+    val r = msg.result
+    val headerColor = if (r.error != null) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val summary = buildString {
+        if (r.error != null) {
+            append("Error: ").append(r.error)
+        } else {
+            append("Matched ")
+                .append(r.matchedMerchantName ?: "<none>")
+                .append(" (id=").append(r.matchedMerchantId ?: -1L).append(")")
+            if (r.isSelfChanged) {
+                append("; isSelf -> ").append(r.isSelfNewValue)
+            }
+            if (r.metadataAdded.isNotEmpty()) {
+                append("; +")
+                append(r.metadataAdded.joinToString(",") { "${it.kind}=${it.value}" })
+            }
+            if (r.metadataRemoved.isNotEmpty()) {
+                append("; -")
+                append(r.metadataRemoved.joinToString(","))
+            }
+            if (r.affectedTransactionIds.isNotEmpty()) {
+                append("; affected=").append(r.affectedTransactionIds.size)
+                if (r.selfTransferLinksWritten > 0) {
+                    append(", self-links=").append(r.selfTransferLinksWritten)
+                }
+                if (r.repromptsEnqueued > 0) {
+                    append(", reprompts=").append(r.repromptsEnqueued)
+                }
+            }
+        }
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = if (r.error != null) "Result - error" else "Result - saved",
+            style = MaterialTheme.typography.labelMedium,
+            color = headerColor,
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 22.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(Dimens.BorderThin, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .padding(Dimens.SpaceXs),
+        ) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+    }
 }

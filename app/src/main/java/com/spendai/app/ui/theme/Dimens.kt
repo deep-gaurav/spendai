@@ -32,7 +32,9 @@ object Dimens {
     val SpaceLg = 28.dp
     val SpaceXl = 36.dp
 
-    // Halftone dot pattern tuning.
-    val HalftoneDotRadius = 1.5.dp
-    val HalftoneSpacing = 7.dp
+    // Halftone dot pattern tuning. Kept as a faint brand texture:
+    // small dots at low alpha, spaced wide enough to read as a
+    // background wash rather than competing with card content.
+    val HalftoneDotRadius = 1.dp
+    val HalftoneSpacing = 12.dp
 }

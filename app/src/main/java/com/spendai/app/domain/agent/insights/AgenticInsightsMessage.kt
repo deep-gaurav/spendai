@@ -1,5 +1,7 @@
 package com.spendai.app.domain.agent.insights
 
+import kotlinx.serialization.json.JsonElement
+
 /**
  * The conversation model the UI binds to. Sealed so the
  * Compose layer can render each variant without nullable
@@ -56,6 +58,19 @@ sealed interface AgenticInsightsMessage {
     ) : AgenticInsightsMessage
 
     /**
+     * A merchant-mutation tool call. Mirrors
+     * [ToolCallMessage] but for the write-side tool. Renders
+     * separately in the chat so the user can see "the model
+     * is about to flip Deep G to isSelf = true" before the
+     * mutation actually runs.
+     */
+    data class MutationToolCallMessage(
+        override val id: String,
+        val action: AgenticAction.MutateMerchant,
+        val status: ToolCallStatus,
+    ) : AgenticInsightsMessage
+
+    /**
      * The rows a [ToolCallMessage] produced. If `error` is
      * non-null the tool call failed and [rows] is empty.
      * The orchestrator appends this message right after the
@@ -78,7 +93,22 @@ sealed interface AgenticInsightsMessage {
         val rowCount: Int,
         val truncated: Boolean,
         val error: String?,
-        val rows: List<Map<String, kotlinx.serialization.json.JsonElement>> = emptyList(),
+        val rows: List<Map<String, JsonElement>> = emptyList(),
+    ) : AgenticInsightsMessage
+
+    /**
+     * The result of a [MutationToolCallMessage]. Captures
+     * every counter the model needs to confirm in plain
+     * English on the next turn (matched merchant, isSelf
+     * delta, metadata added / removed, transactions
+     * affected, self-link rows written, reprompts
+     * enqueued). Kept as a typed structure rather than a
+     * raw JSON blob so the chat bubble can render a clean
+     * summary.
+     */
+    data class MutationToolResultMessage(
+        override val id: String,
+        val result: MerchantMutator.MutationResult,
     ) : AgenticInsightsMessage
 
     /**

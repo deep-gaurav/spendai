@@ -285,3 +285,141 @@ class InsightsDaoTest {
         private const val DAY_MS: Long = 24L * 60L * 60L * 1000L
     }
 }
+
+/**
+ * Companion to [InsightsDaoTest] that asserts the v9
+ * `merchant.isSelf` exclusion: transactions whose merchant
+ * is marked `isSelf = true` drop out of every aggregate, the
+ * same way self-transfer-linked rows do. The two predicates
+ * are independent in the SQL (joined with AND), so this is
+ * the surface that locks down the new exclusion.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, application = android.app.Application::class, sdk = [33])
+class InsightsDaoIsSelfTest {
+
+    private lateinit var db: AppDatabase
+    private val now = 1_700_000_000_000L
+    private val DAY_MS = 24L * 60L * 60L * 1000L
+
+    @Before
+    fun setUp() {
+        db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            AppDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        runBlocking { seed() }
+    }
+
+    @After fun tearDown() { db.close() }
+
+    private suspend fun seed() {
+        val sourceId = db.financialSourceDao().upsert(
+            FinancialSource(
+                sourceKey = "HDFC",
+                displayName = "HDFC Bank",
+                bankName = "HDFC",
+                accountLast4 = "1234",
+                deducedType = "BANK_SMS",
+                firstSeenTimestamp = 1L,
+            ),
+        )
+        val accountId = db.accountDao().insert(
+            Account(
+                sourceId = sourceId,
+                instrumentType = SourceInstrumentType.ACCOUNT.name,
+                issuer = "HDFC",
+                maskedNumber = "XXXX1234",
+                currency = "INR",
+                holderName = "Test",
+                createdAt = 1L,
+            ),
+        )
+        val foodCatId = db.categoryDao().insert(
+            Category(name = "Food", normalizedName = "food", emoji = "🍔", createdAt = 1L),
+        )
+        val zomatoId = db.merchantDao().insertIgnore(
+            Merchant(name = "Zomato", normalizedName = "zomato",
+                categoryId = foodCatId, firstSeenAt = 1L),
+        )
+        val deepId = db.merchantDao().insertIgnore(
+            Merchant(name = "DEEP G", normalizedName = "deep g",
+                categoryId = foodCatId, firstSeenAt = 2L, isSelf = true),
+        )
+        // 3 Zomato debits + 1 DEEP G debit (self); the isSelf row must
+        // be invisible to every aggregate below.
+        listOf(10_000L, 20_000L, 30_000L).forEachIndexed { i, paise ->
+            val rawId = db.smsDao().insert(
+                RawSmsMessage(
+                    senderAddress = "HDFC", msgBody = "z$i", timestamp = now - (3L - i) * DAY_MS,
+                ),
+            )
+            val parsedId = db.parsedSmsDao().insert(
+                ParsedSms(
+                    rawSmsId = rawId, parsedAt = now, kind = "TRANSACTION",
+                    amountPaise = paise, currency = "INR", direction = "DEBIT",
+                    txnAtMillis = now - (3L - i) * DAY_MS,
+                    a1Confidence = 1f, a1RawJson = "{}",
+                ),
+            )
+            db.transactionDao().insert(
+                Transaction(
+                    accountId = accountId, merchantId = zomatoId, rawSmsId = rawId,
+                    parsedSmsId = parsedId, amountPaise = paise, currency = "INR",
+                    direction = "DEBIT", txnAtMillis = now - (3L - i) * DAY_MS,
+                    status = "CONFIRMED", confidence = 1f, categoryId = foodCatId,
+                    createdAt = now,
+                ),
+            )
+        }
+        val rawSelf = db.smsDao().insert(
+            RawSmsMessage(senderAddress = "HDFC", msgBody = "self", timestamp = now - 4L * DAY_MS),
+        )
+        val parsedSelf = db.parsedSmsDao().insert(
+            ParsedSms(
+                rawSmsId = rawSelf, parsedAt = now, kind = "TRANSACTION",
+                amountPaise = 50_000L, currency = "INR", direction = "DEBIT",
+                txnAtMillis = now - 4L * DAY_MS,
+                a1Confidence = 1f, a1RawJson = "{}",
+            ),
+        )
+        db.transactionDao().insert(
+            Transaction(
+                accountId = accountId, merchantId = deepId, rawSmsId = rawSelf,
+                parsedSmsId = parsedSelf, amountPaise = 50_000L, currency = "INR",
+                direction = "DEBIT", txnAtMillis = now - 4L * DAY_MS,
+                status = "CONFIRMED", confidence = 1f, categoryId = foodCatId,
+                createdAt = now,
+            ),
+        )
+    }
+
+    @Test fun `kpi rows exclude isSelf merchants`() = runTest {
+        val rows = db.insightsDao().observeKpiRows(now - 10L * DAY_MS, now + 1L).first()
+        val debit = rows.first { it.direction == "DEBIT" }
+        // 3 Zomato debits only: 10k + 20k + 30k = 60k. The 50k DEEP G is dropped.
+        assertEquals(3, debit.txnCount)
+        assertEquals(60_000L, debit.totalPaise)
+    }
+
+    @Test fun `category breakdown excludes isSelf merchants`() = runTest {
+        val rows = db.insightsDao().observeCategoryBreakdown(now - 10L * DAY_MS, now + 1L).first()
+        assertEquals(1, rows.size)
+        assertEquals(60_000L, rows[0].totalPaise)
+    }
+
+    @Test fun `top merchants excludes isSelf merchants entirely`() = runTest {
+        val rows = db.insightsDao().observeTopMerchants(now - 10L * DAY_MS, now + 1L, limit = 10).first()
+        assertEquals(1, rows.size)
+        assertEquals("Zomato", rows[0].merchantName)
+        assertEquals(60_000L, rows[0].totalPaise)
+    }
+
+    @Test fun `transactions in range excludes isSelf merchants`() = runTest {
+        val txns = db.insightsDao().observeTransactionsInRange(
+            now - 10L * DAY_MS, now + 1L, TransactionDirection.DEBIT.name,
+        ).first()
+        assertEquals(3, txns.size)
+        assertTrue(txns.none { it.merchantId == null || it.amountPaise == 50_000L })
+    }
+}

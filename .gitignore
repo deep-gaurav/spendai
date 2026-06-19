@@ -40,3 +40,4 @@ app/src/main/assets/models/*.task
 
 # ADB logcat dumps (debug)
 *.logcat
+.adb-shots/
