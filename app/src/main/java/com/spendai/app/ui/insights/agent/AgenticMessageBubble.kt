@@ -48,6 +48,7 @@ fun AgenticMessageBubble(
         is AgenticInsightsMessage.MutationToolResultMessage -> MutationToolResultBubble(message, modifier)
         is AgenticInsightsMessage.SystemMessage -> SystemBubble(message, modifier)
         is AgenticInsightsMessage.VerifierMessage -> VerifierBubble(message, modifier)
+        is AgenticInsightsMessage.InternalNudge -> InternalNudgeBubble(message, modifier)
     }
 }
 
@@ -78,6 +79,46 @@ private fun VerifierBubble(
         ) {
             Text(
                 text = "Verifier - attempt ${msg.attempt}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = msg.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
+    }
+}
+
+/**
+ * Parse-failure nudges share the warning-coloured treatment
+ * with [VerifierBubble] but carry a "Parser retry" label so
+ * the audit trail is obvious. The text is what the
+ * orchestrator injected into the model's input as a `user`
+ * turn; the model sees "Parser retry: <text>" while the
+ * user sees the body prefixed by the label.
+ */
+@Composable
+private fun InternalNudgeBubble(
+    msg: AgenticInsightsMessage.InternalNudge,
+    modifier: Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.errorContainer)
+                .border(Dimens.BorderThin, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                .padding(horizontal = Dimens.SpaceSm, vertical = Dimens.SpaceXs),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = "Parser retry",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )

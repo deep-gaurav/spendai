@@ -135,6 +135,26 @@ sealed interface AgenticInsightsMessage {
         val text: String,
         val attempt: Int,
     ) : AgenticInsightsMessage
+
+    /**
+     * A "user" turn the orchestrator synthesised to nudge
+     * the model into re-emitting a parseable action. Used
+     * by the parse-failure retry loop in
+     * [com.spendai.app.domain.agent.insights.AgenticInsightsAgent].
+     * Distinct from [SystemMessage] (which is UI-only and
+     * never reaches the model) and from [VerifierMessage]
+     * (which is anchored to a specific tool result and
+     * carries an `attempt` counter). The text is forwarded
+     * to the model as a `user` turn prefixed with
+     * "Parser retry:" so the model can tell it apart from a
+     * real user question; the UI renders it as a small
+     * warning-coloured chip so the user can see the
+     * orchestrator is asking the model to try again.
+     */
+    data class InternalNudge(
+        override val id: String,
+        val text: String,
+    ) : AgenticInsightsMessage
 }
 
 sealed interface AssistantStatus {

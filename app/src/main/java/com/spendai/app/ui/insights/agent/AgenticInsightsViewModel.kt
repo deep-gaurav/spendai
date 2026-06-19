@@ -87,6 +87,8 @@ class AgenticInsightsViewModel(application: Application) : AndroidViewModel(appl
         is AgenticInsightsMessage.UserMessage -> "User: ${msg.text}"
         is AgenticInsightsMessage.VerifierMessage ->
             "Verifier (attempt ${msg.attempt}): ${msg.text}"
+        is AgenticInsightsMessage.InternalNudge ->
+            "Parser retry: ${msg.text}"
         is AgenticInsightsMessage.AssistantMessage -> {
             val parsed = msg.parsed
             when (parsed) {

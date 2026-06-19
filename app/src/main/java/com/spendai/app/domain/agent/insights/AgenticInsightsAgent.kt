@@ -377,7 +377,7 @@ class AgenticInsightsAgent(
                     ),
                 )
                 appendMessage(
-                    AgenticInsightsMessage.SystemMessage(
+                    AgenticInsightsMessage.InternalNudge(
                         id = uuid(),
                         text = "Your previous reply did not contain a parseable action. " +
                             "Reply with a single JSON object on its own line, with no " +
@@ -661,6 +661,22 @@ class AgenticInsightsAgent(
                     // prefix tells the model the prompt is from
                     // the orchestrator, not the actual user.
                     out.add(ChatMessage(ChatMessage.ROLE_USER, msg.text))
+                }
+                is AgenticInsightsMessage.InternalNudge -> {
+                    // Parse-failure nudges are forwarded to the
+                    // model as `user` turns. The "Parser retry:"
+                    // prefix is the model's cue that this is an
+                    // orchestrator-synthesised re-prompt, not a
+                    // real user question. Without this forwarding
+                    // the retry loop is a no-op: the model never
+                    // sees the nudge and keeps producing the same
+                    // unparseable response.
+                    out.add(
+                        ChatMessage(
+                            ChatMessage.ROLE_USER,
+                            "Parser retry: " + msg.text,
+                        ),
+                    )
                 }
                 is AgenticInsightsMessage.AssistantMessage -> {
                     if (msg.streamedText.isNotEmpty() && msg.streamedText != lastAssistantText) {
