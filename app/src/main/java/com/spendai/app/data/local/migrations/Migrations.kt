@@ -360,3 +360,57 @@ val MIGRATION_6_7: Migration = object : Migration(6, 7) {
         db.execSQL("ALTER TABLE `ingestion_log` ADD COLUMN `userPrompt` TEXT")
     }
 }
+
+/**
+ * v7 -> v8: durable A3 reprompt jobs.
+ *
+ * Adds the [com.spendai.app.data.local.entity.RepromptJob] table.
+ * The reprompt flow on the edit screen runs on the foreground
+ * [com.spendai.app.service.IngestionService] (action
+ * `ACTION_REPROMPT`). This table is the durable execution record
+ * of every job the service is asked to perform — a row is inserted
+ * with `status = RUNNING` the moment the service starts a reprompt
+ * and flipped to `COMPLETED` / `FAILED` on terminal completion.
+ *
+ * The cold-start scan in the service re-drives rows that are
+ * still `PENDING` or `RUNNING` but whose `lastAttemptAt` is older
+ * than 10 minutes, so a process death does not silently drop the
+ * user's prompt. The companion `manual_correction` row (v6 → v7)
+ * remains the durable *lesson*; this table is the *execution* of
+ * that lesson.
+ *
+ * Foreign key on `transactionId` is `ON DELETE SET NULL` so
+ * deleting a transaction from the edit screen does not
+ * cascade-kill the job record.
+ */
+val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `reprompt_job` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`rawSmsIds` TEXT NOT NULL, " +
+                "`userPrompt` TEXT NOT NULL, " +
+                "`transactionId` INTEGER, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`status` TEXT NOT NULL, " +
+                "`errorMessage` TEXT, " +
+                "`attemptCount` INTEGER NOT NULL, " +
+                "`lastAttemptAt` INTEGER, " +
+                "`completedAt` INTEGER, " +
+                "FOREIGN KEY(`transactionId`) REFERENCES `spend_transaction`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE SET NULL)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reprompt_job_status` " +
+                "ON `reprompt_job` (`status`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reprompt_job_createdAt` " +
+                "ON `reprompt_job` (`createdAt`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_reprompt_job_transactionId` " +
+                "ON `reprompt_job` (`transactionId`)"
+        )
+    }
+}

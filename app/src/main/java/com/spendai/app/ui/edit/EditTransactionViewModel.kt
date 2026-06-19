@@ -26,6 +26,8 @@ import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionRepository
 import com.spendai.app.domain.ingestion.IngestionPipeline
 import com.spendai.app.domain.model.MerchantNormalizer
+import com.spendai.app.domain.ingestion.IngestionProgress
+import com.spendai.app.service.IngestionService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -147,6 +149,7 @@ class EditTransactionViewModel(
                     linkedSms = linkedSms,
                 )
             }
+            observeRepromptService(transactionId)
         }
     }
 
@@ -238,11 +241,17 @@ class EditTransactionViewModel(
     }
 
     /**
-     * Run the A3 reprompt path: persist a [com.spendai.app.data.local.entity.ManualCorrection]
-     * with the user-typed prompt, then re-run A3 on every raw_sms id
-     * in the linked-SMS view. The pipeline is idempotent: a successful
-     * re-run will either keep the existing transaction, modify it, or
-     * delete it via the `modifications` block of the A3 contract.
+     * Hand the A3 reprompt off to the foreground
+     * [com.spendai.app.service.IngestionService]. The service owns
+     * the wake lock, the persistent notification, the retry
+     * policy, and the durable [com.spendai.app.data.local.entity.RepromptJob]
+     * row; this function only validates the prompt, kicks the
+     * service, and updates the local [RepromptState] from the
+     * service's [IngestionService.repromptProgress] flow.
+     *
+     * Returning early does NOT cancel the run — once the service
+     * has the intent, the pipeline is in flight. The user cancels
+     * via [cancelReprompt].
      */
     fun reprompt(userPrompt: String) {
         val s = _state.value
@@ -266,62 +275,123 @@ class EditTransactionViewModel(
                 if (row.id != s.rawSms.id) add(row.id)
             }
         }
-        _state.update { it.copy(reprompt = RepromptState(running = true)) }
-        viewModelScope.launch {
-            val outcome = runCatching {
-                // Lazy-init the engine if it isn't already ready;
-                // the same pattern the worker uses.
-                val engine = gemmaInferenceEngine
-                    ?: error("Engine not available")
-                val pipeline = ingestionPipeline
-                    ?: error("Pipeline not available")
-                if (engine.state.value !is com.spendai.app.inference.InferenceState.Ready) {
-                    engine.initialize(getApplication())
-                }
-                pipeline.runWithReprompt(
-                    rawSmsIds = ids,
-                    userPrompt = prompt,
-                    emit = { /* fire-and-forget for the dialog */ },
-                )
-            }
-            val newState = outcome.fold(
-                onSuccess = { result ->
-                    val summary = when (result) {
-                        is com.spendai.app.domain.ingestion.IngestionOutcome.Success ->
-                            "${result.summary.committedTransactions} committed, " +
-                                "${result.summary.ignored} ignored, " +
-                                "${result.summary.skippedByA2} skipped"
-                        is com.spendai.app.domain.ingestion.IngestionOutcome.Failure ->
-                            null
-                    }
-                    if (summary != null) {
-                        RepromptState(running = false, lastResult = summary)
-                    } else {
-                        RepromptState(
-                            running = false,
-                            lastError = (result as com.spendai.app.domain.ingestion.IngestionOutcome.Failure).message
-                                ?: "Reprompt failed",
-                        )
-                    }
-                },
-                onFailure = { t ->
-                    RepromptState(running = false, lastError = t.message ?: t.javaClass.simpleName)
-                },
-            )
-            _state.update { it.copy(reprompt = newState) }
-            // Re-load the linked-SMS view + transaction so the screen
-            // reflects the new state.
-            val txn = withContext(Dispatchers.IO) { transactionRepository.getById(s.transactionId) }
-            if (txn != null) {
-                val linkedSms = withContext(Dispatchers.IO) { loadLinkedSms(txn) }
-                _state.update { it.copy(linkedSms = linkedSms) }
-            }
+        if (ids.isEmpty()) {
+            _state.update { it.copy(reprompt = RepromptState(lastError = "No SMSes to reprompt")) }
+            return
         }
+        // Hand off to the service. The service starts the foreground
+        // notification, persists a RepromptJob, runs the pipeline,
+        // and posts the terminal notification with a deep-link back
+        // to this screen.
+        IngestionService.startReprompt(
+            context = getApplication(),
+            rawSmsIds = ids,
+            userPrompt = prompt,
+            transactionId = s.transactionId.takeIf { it > 0L },
+        )
+        // Optimistically flip the local state so the button
+        // disables and the dialog can close. The service flow
+        // observer below will refine running / lastResult /
+        // lastError as the run progresses.
+        _state.update { it.copy(reprompt = RepromptState(running = true)) }
     }
 
-    /** Reset the reprompt status so the dialog can be reopened cleanly. */
+    /**
+     * Send an [IngestionService.ACTION_CANCEL] intent so the user
+     * can stop a reprompt they kicked off earlier. The service
+     * marks the job FAILED with "Cancelled" and posts the
+     * terminal notification; the service flow observer picks up
+     * the transition and updates the local state.
+     */
+    fun cancelReprompt() {
+        IngestionService.cancel(getApplication())
+    }
+
+    /**
+     * Reset the reprompt status so the dialog can be reopened
+     * cleanly. Does NOT cancel a running reprompt — the service is
+     * the owner.
+     */
     fun clearRepromptStatus() {
         _state.update { it.copy(reprompt = RepromptState()) }
+    }
+
+    /**
+     * Observe the service's reprompt StateFlows. The first time a
+     * transaction id is set on the state, this launches a
+     * long-lived collector that:
+     *  1. Translates [IngestionService.repromptProgress] events
+     *     into local [RepromptState] updates (running / lastResult
+     *     / lastError).
+     *  2. Watches [IngestionService.repromptJobsByTransactionId]
+     *     to know if a reprompt is active for the open
+     *     transaction, so the screen can show a banner even if the
+     *     user navigates back mid-run.
+     *
+     * Called from [load] after the transaction is fetched. The
+     * collector is scoped to the [viewModelScope] so it stops
+     * collecting when the ViewModel is cleared (the service still
+     * owns the actual run).
+     */
+    private fun observeRepromptService(transactionId: Long) {
+        viewModelScope.launch {
+            IngestionService.repromptProgress.collect { progress ->
+                val newState = when (progress) {
+                    IngestionProgress.Idle -> RepromptState(
+                        running = _state.value.reprompt.running,
+                        lastResult = _state.value.reprompt.lastResult,
+                        lastError = _state.value.reprompt.lastError,
+                    )
+                    is IngestionProgress.EngineInitialising ->
+                        RepromptState(running = true)
+                    is IngestionProgress.LoadingFromSource ->
+                        RepromptState(running = true)
+                    is IngestionProgress.MessageParsed ->
+                        RepromptState(running = true)
+                    is IngestionProgress.MessageCommitted ->
+                        RepromptState(running = true)
+                    is IngestionProgress.MessageSkipped ->
+                        RepromptState(running = true)
+                    is IngestionProgress.Done -> {
+                        // The Done event from the pipeline only carries
+                        // the in-pipeline summary. The service posts a
+                        // separate terminal notification with the
+                        // deep-link; the screen re-loads the transaction
+                        // to reflect the new state.
+                        val txn = withContext(Dispatchers.IO) {
+                            transactionRepository.getById(transactionId)
+                        }
+                        if (txn != null) {
+                            val linkedSms = withContext(Dispatchers.IO) { loadLinkedSms(txn) }
+                            _state.update { it.copy(linkedSms = linkedSms) }
+                        }
+                        RepromptState(
+                            running = false,
+                            lastResult = "Reprompt done",
+                        )
+                    }
+                    is IngestionProgress.Failure ->
+                        RepromptState(
+                            running = false,
+                            lastError = progress.message,
+                        )
+                    IngestionProgress.Cancelled ->
+                        RepromptState(
+                            running = false,
+                            lastError = "Cancelled",
+                        )
+                }
+                _state.update { it.copy(reprompt = newState) }
+            }
+        }
+        viewModelScope.launch {
+            IngestionService.repromptJobsByTransactionId.collect { byTxnId ->
+                val active = byTxnId[transactionId]
+                if (active != null) {
+                    _state.update { it.copy(reprompt = it.reprompt.copy(running = true)) }
+                }
+            }
+        }
     }
 
     fun delete() {

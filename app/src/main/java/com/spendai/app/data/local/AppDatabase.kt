@@ -16,6 +16,7 @@ import com.spendai.app.data.local.dao.ManualCorrectionDao
 import com.spendai.app.data.local.dao.MerchantDao
 import com.spendai.app.data.local.dao.ParsedSmsDao
 import com.spendai.app.data.local.dao.PendingReviewDao
+import com.spendai.app.data.local.dao.RepromptJobDao
 import com.spendai.app.data.local.dao.SmsDao
 import com.spendai.app.data.local.dao.TransactionDao
 import com.spendai.app.data.local.dao.TransactionLinkDao
@@ -28,12 +29,14 @@ import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.PendingReview
 import com.spendai.app.data.local.entity.RawSmsMessage
+import com.spendai.app.data.local.entity.RepromptJob
 import com.spendai.app.data.local.entity.Transaction
 import com.spendai.app.data.local.entity.TransactionLink
 import com.spendai.app.data.local.migrations.MIGRATION_1_2
 import com.spendai.app.data.local.migrations.MIGRATION_2_3
 import com.spendai.app.data.local.migrations.MIGRATION_5_6
 import com.spendai.app.data.local.migrations.MIGRATION_6_7
+import com.spendai.app.data.local.migrations.MIGRATION_7_8
 
 /**
  * The single Room database for SpendAI.
@@ -62,6 +65,16 @@ import com.spendai.app.data.local.migrations.MIGRATION_6_7
  * Adds `raw_sms.processedAt` and `raw_sms.lastError` for
  * idempotency. See MIGRATION_5_6 for the column adds and the
  * supporting composite index.
+ *
+ * ## v6 → v7
+ *
+ * Adds the `manual_correction` table and an `ingestion_log.userPrompt`
+ * column for the reprompt lesson-injection flow.
+ *
+ * ## v7 → v8
+ *
+ * Adds the `reprompt_job` table for durable execution tracking of
+ * A3 reprompts. See MIGRATION_7_8.
  */
 @Database(
     entities = [
@@ -76,8 +89,9 @@ import com.spendai.app.data.local.migrations.MIGRATION_6_7
         IngestionLog::class,
         Category::class,
         ManualCorrection::class,
+        RepromptJob::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -96,12 +110,19 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun linkedSmsDao(): LinkedSmsDao
     abstract fun categoryDao(): CategoryDao
     abstract fun insightsDao(): InsightsDao
+    abstract fun repromptJobDao(): RepromptJobDao
 
     companion object {
         private const val DB_NAME = "spendai.db"
 
         /** All known migrations in order. v3 → v5 is destructive. */
-        val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_5_6, MIGRATION_6_7)
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+            MIGRATION_7_8,
+        )
 
         @Volatile
         private var instance: AppDatabase? = null

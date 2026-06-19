@@ -13,6 +13,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -27,6 +28,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.spendai.app.R
+import com.spendai.app.ui.DeepLink
 import com.spendai.app.ui.download.DownloadScreen
 import com.spendai.app.ui.edit.EditTransactionScreen
 import com.spendai.app.ui.home.HomeScreen
@@ -76,7 +78,37 @@ private val bottomDestinations = listOf(
 fun SpendAiNavHost(
     setupViewModel: SetupViewModel = viewModel(factory = SetupViewModel.Factory),
     navController: NavHostController = rememberNavController(),
+    deepLink: DeepLink? = null,
+    onDeepLinkConsumed: () -> Unit = {},
+    registerNavController: (NavHostController) -> Unit = {},
 ) {
+    LaunchedEffect(deepLink) {
+        val link = deepLink ?: return@LaunchedEffect
+        when (link) {
+            is DeepLink.Transaction -> {
+                // Only navigate once setup is complete. The
+                // SetupViewModel gates the nav host on `isComplete`,
+                // so if we are still on the onboarding flow we
+                // drop the deep-link; the user will see the
+                // notification on the home screen after setup.
+                val current = navController.currentDestination?.route
+                if (current == null || current == Routes.HOME ||
+                    current == Routes.TRANSACTIONS || current == Routes.INSIGHTS ||
+                    current == Routes.INSIGHTS_AGENT || current == Routes.REVIEW ||
+                    current == Routes.SOURCES || current == Routes.MODEL_SETTINGS ||
+                    current == Routes.DEBUG_LOG || current.startsWith("debugLogDetail")
+                ) {
+                    navController.navigate(Routes.transactionDetail(link.id)) {
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+        onDeepLinkConsumed()
+    }
+    LaunchedEffect(navController) {
+        registerNavController(navController)
+    }
     val state by setupViewModel.state.collectAsStateWithLifecycle()
     if (!state.isComplete) {
         OnboardingNavHost(

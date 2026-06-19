@@ -17,6 +17,7 @@ import com.spendai.app.data.repository.PendingReviewRepository
 import com.spendai.app.data.repository.IngestionLogRepository
 import com.spendai.app.data.repository.InsightsRepository
 import com.spendai.app.data.repository.ManualCorrectionRepository
+import com.spendai.app.data.repository.RepromptJobRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionLinkRepository
 import com.spendai.app.data.repository.TransactionRepository
@@ -90,6 +91,9 @@ open class SpendAiApp : Application() {
     }
     val manualCorrectionRepository: ManualCorrectionRepository by lazy {
         ManualCorrectionRepository(database.manualCorrectionDao())
+    }
+    val repromptJobRepository: RepromptJobRepository by lazy {
+        RepromptJobRepository(database.repromptJobDao())
     }
 
     val insightsRepository: InsightsRepository by lazy {

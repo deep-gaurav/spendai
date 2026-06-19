@@ -128,9 +128,17 @@ fun EditTransactionScreen(
                 SourceSmsCard(rawSms = state.rawSms)
                 LinkedSmsCard(rows = state.linkedSms)
                 if (state.linkedSms.isNotEmpty()) {
+                    if (state.reprompt.running) {
+                        RepromptRunningBanner(
+                            message = state.reprompt.lastError
+                                ?: "Re-deciding with A3…",
+                            onCancel = viewModel::cancelReprompt,
+                        )
+                    }
                     BigOutlinedButton(
                         onClick = { showReprompt = true },
                         text = if (state.reprompt.running) "Reprompting..." else "Reprompt A3",
+                        enabled = !state.reprompt.running,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -347,6 +355,35 @@ private fun EmojiGrid(selected: String, onSelect: (String) -> Unit) {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Banner shown above the "Reprompt A3" button while a reprompt is
+ * running. The message is the latest in-flight progress line from
+ * the [com.spendai.app.service.IngestionService] notification (or
+ * a friendly default), and the trailing Cancel button sends an
+ * ACTION_CANCEL intent so the service can stop the pipeline at
+ * the next cooperative cancellation point.
+ */
+@Composable
+private fun RepromptRunningBanner(
+    message: String,
+    onCancel: () -> Unit,
+) {
+    StickerCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+            SectionLabel("Reprompt in progress")
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Cancel reprompt") }
         }
     }
 }
