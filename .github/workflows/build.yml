@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # required by softprops/action-gh-release to publish releases
+  contents: write   # required to create/move releases and tags
 
 concurrency:
   group: build-${{ github.ref }}
@@ -18,10 +18,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # Decode the signing keystore from a GitHub secret. When absent (e.g.
-      # on a forked PR) the release APK is built unsigned and the publish
-      # step below is skipped. We surface presence as an env flag so step
-      # `if` conditions never reference the secrets context directly.
+      # Signing secrets come from GitHub Actions secrets (see README). When
+      # absent (e.g. a forked PR) the release variant is debug-signed so the
+      # rolling APK still installs; the signed-tag release step is skipped.
       SPENDAI_SIGNING_STORE_FILE: ${{ github.workspace }}/keystore/spendai-release.jks
       SPENDAI_SIGNING_STORE_PASSWORD: ${{ secrets.SPENDAI_SIGNING_STORE_PASSWORD }}
       SPENDAI_SIGNING_KEY_ALIAS: ${{ secrets.SPENDAI_SIGNING_KEY_ALIAS }}
@@ -95,7 +94,38 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      - name: Publish GitHub Release with the signed APK
+      # Rolling release: on every successful master push, recreate the
+      # `rolling` prerelease with the freshly built (debug-signed, minified)
+      # release APK. The download URL releases/download/rolling/spendai.apk
+      # is stable across rebuilds - this is the link the README points at.
+      - name: Publish rolling release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG=rolling
+          SHA=${GITHUB_SHA}
+          # Stable asset name regardless of AGP's variant naming.
+          cp app/build/outputs/apk/release/*.apk spendai.apk
+          NOTES="Automatic rolling build from commit ${SHA:0:7}.
+
+          Built by GitHub Actions from the master branch. This is a
+          debug-signed, minified release APK - install it with:
+          adb install -r spendai.apk
+
+          For a properly signed build, push a v* tag after configuring
+          the SPENDAI_SIGNING_* secrets."
+          # Recreate the release (and its tag) each run so it tracks master.
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" spendai.apk \
+            --title "Rolling build" \
+            --notes "$NOTES" \
+            --prerelease \
+            --target "$SHA"
+
+      # Proper signed versioned release on a v* tag (requires signing secrets).
+      - name: Publish signed tag release
         if: env.IS_TAG == 'true' && env.HAS_SIGNING_KEY == 'true'
         uses: softprops/action-gh-release@v2
         with:

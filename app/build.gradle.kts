@@ -65,10 +65,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Only attach the signing config when the keystore is wired;
-            // otherwise AGP produces an unsigned release APK.
-            if (hasSigningKey) {
-                signingConfig = signingConfigs.getByName("release")
+            // Sign with the release keystore when its secrets are present;
+            // otherwise fall back to the debug keystore so the release APK
+            // stays installable for the rolling CI build (debug-signed, fine
+            // for personal/preview distribution - not a production signature).
+            signingConfig = if (hasSigningKey) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
         }
     }
