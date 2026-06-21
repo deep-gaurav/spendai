@@ -61,7 +61,7 @@ sealed interface AgenticInsightsMessage {
      * A merchant-mutation tool call. Mirrors
      * [ToolCallMessage] but for the write-side tool. Renders
      * separately in the chat so the user can see "the model
-     * is about to flip Deep G to isSelf = true" before the
+     * is about to flip Own Account to isSelf = true" before the
      * mutation actually runs.
      */
     data class MutationToolCallMessage(

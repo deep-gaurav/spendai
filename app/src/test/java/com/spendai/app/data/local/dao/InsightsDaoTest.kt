@@ -343,10 +343,10 @@ class InsightsDaoIsSelfTest {
                 categoryId = foodCatId, firstSeenAt = 1L),
         )
         val deepId = db.merchantDao().insertIgnore(
-            Merchant(name = "DEEP G", normalizedName = "deep g",
+            Merchant(name = "OWN ACCOUNT", normalizedName = "own account",
                 categoryId = foodCatId, firstSeenAt = 2L, isSelf = true),
         )
-        // 3 Zomato debits + 1 DEEP G debit (self); the isSelf row must
+        // 3 Zomato debits + 1 OWN ACCOUNT debit (self); the isSelf row must
         // be invisible to every aggregate below.
         listOf(10_000L, 20_000L, 30_000L).forEachIndexed { i, paise ->
             val rawId = db.smsDao().insert(
@@ -397,7 +397,7 @@ class InsightsDaoIsSelfTest {
     @Test fun `kpi rows exclude isSelf merchants`() = runTest {
         val rows = db.insightsDao().observeKpiRows(now - 10L * DAY_MS, now + 1L).first()
         val debit = rows.first { it.direction == "DEBIT" }
-        // 3 Zomato debits only: 10k + 20k + 30k = 60k. The 50k DEEP G is dropped.
+        // 3 Zomato debits only: 10k + 20k + 30k = 60k. The 50k OWN ACCOUNT is dropped.
         assertEquals(3, debit.txnCount)
         assertEquals(60_000L, debit.totalPaise)
     }

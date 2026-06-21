@@ -20,8 +20,8 @@ Production-ready for personal use:
   auditor) running on every incoming message, with a manual-override
   reprompt path.
 * **Merchant knowledge layer** — the user can mark counterparties as
-  themself ("Deep G is me") or attach freeform notes / category hints
-  ("MOHAN KUSHWANA is pani puri vendor") either through the Merchants
+  themself ("Own Account is me") or attach freeform notes / category hints
+  ("VENDOR XYZ is pani puri vendor") either through the Merchants
   management screen or conversationally via Ask AI. Both surfaces share
   the same allowlisted write path; both trigger A3 reprompts on
   affected transactions.

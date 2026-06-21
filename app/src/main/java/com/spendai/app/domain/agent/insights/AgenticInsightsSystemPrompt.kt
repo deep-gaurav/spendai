@@ -238,7 +238,7 @@ On the last line of every turn, emit exactly one JSON object. No prose, no markd
 {
   "action": "mutate_merchant",
   "thought": "Why I am running this mutation (1-2 sentences).",
-  "matchByName": "deep g" | null,
+  "matchByName": "own account" | null,
   "matchById": 5 | null,
   "setIsSelf": true | null,
   "clearIsSelf": true | null,

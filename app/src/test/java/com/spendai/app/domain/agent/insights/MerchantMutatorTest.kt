@@ -77,15 +77,15 @@ class MerchantMutatorTest {
     fun `setIsSelf flips the flag and enqueues one reprompt per affected txn`() = runBlocking {
         val (accountId, otherAccountId) = seedAccounts()
         val deepId = merchantRepo.insert(
-            Merchant(name = "DEEP G", normalizedName = "deep g", firstSeenAt = 1L)
+            Merchant(name = "OWN ACCOUNT", normalizedName = "own account", firstSeenAt = 1L)
         )
         val txn = insertTxn(accountId, deepId, 5_000L, "DEBIT", now - 1L * DAY_MS)
         val partner = insertTxn(otherAccountId, null, 5_000L, "CREDIT", now - 1L * DAY_MS + 1L)
 
         val result = mutator.mutate(
             AgenticAction.MutateMerchant(
-                thought = "user says Deep G is me",
-                matchByName = "deep g",
+                thought = "user says Own Account is me",
+                matchByName = "own account",
                 setIsSelf = true,
             )
         )
@@ -113,7 +113,7 @@ class MerchantMutatorTest {
     fun `setIsSelf does not link transactions without a visible partner`() = runBlocking {
         val accountId = seedAccounts().first
         val deepId = merchantRepo.insert(
-            Merchant(name = "DEEP G", normalizedName = "deep g", firstSeenAt = 1L)
+            Merchant(name = "OWN ACCOUNT", normalizedName = "own account", firstSeenAt = 1L)
         )
         val txn = insertTxn(accountId, deepId, 5_000L, "DEBIT", now - 1L * DAY_MS)
         // No opposite-direction partner in the same window.
@@ -121,7 +121,7 @@ class MerchantMutatorTest {
         val result = mutator.mutate(
             AgenticAction.MutateMerchant(
                 thought = "user",
-                matchByName = "deep g",
+                matchByName = "own account",
                 setIsSelf = true,
             )
         )
@@ -136,12 +136,12 @@ class MerchantMutatorTest {
     @Test
     fun `addMetadata upserts and rejects unknown kinds`() = runBlocking {
         val id = merchantRepo.insert(
-            Merchant(name = "MOHAN KUSHWANA", normalizedName = "mohan kushwana", firstSeenAt = 1L)
+            Merchant(name = "VENDOR XYZ", normalizedName = "vendor xyz", firstSeenAt = 1L)
         )
         val ok = mutator.mutate(
             AgenticAction.MutateMerchant(
                 thought = "user",
-                matchByName = "mohan kushwana",
+                matchByName = "vendor xyz",
                 addMetadata = listOf(AgenticAction.MetadataOp("NOTE", "pani puri vendor")),
             )
         )
@@ -157,7 +157,7 @@ class MerchantMutatorTest {
         val second = mutator.mutate(
             AgenticAction.MutateMerchant(
                 thought = "user",
-                matchByName = "mohan kushwana",
+                matchByName = "vendor xyz",
                 addMetadata = listOf(AgenticAction.MetadataOp("NOTE", "pani puri wala")),
             )
         )
@@ -169,7 +169,7 @@ class MerchantMutatorTest {
         val bad = mutator.mutate(
             AgenticAction.MutateMerchant(
                 thought = "user",
-                matchByName = "mohan kushwana",
+                matchByName = "vendor xyz",
                 addMetadata = listOf(AgenticAction.MetadataOp("WAT", "x")),
             )
         )
@@ -221,7 +221,7 @@ class MerchantMutatorTest {
     fun `setIsSelf caps the reprompt enqueue at the configured limit`() = runBlocking {
         val (accountId, otherAccountId) = seedAccounts()
         val deepId = merchantRepo.insert(
-            Merchant(name = "DEEP G", normalizedName = "deep g", firstSeenAt = 1L)
+            Merchant(name = "OWN ACCOUNT", normalizedName = "own account", firstSeenAt = 1L)
         )
         // Insert 60 transactions on the self merchant; cap is 50.
         val ids = (1..60).map { i ->
@@ -234,7 +234,7 @@ class MerchantMutatorTest {
         val result = mutator.mutate(
             AgenticAction.MutateMerchant(
                 thought = "user",
-                matchByName = "deep g",
+                matchByName = "own account",
                 setIsSelf = true,
             )
         )

@@ -26,7 +26,7 @@ import androidx.room.PrimaryKey
  * card nickname, etc.). Insights aggregates drop every transaction
  * whose merchant is marked `isSelf`; A2 also returns `merchant.kind =
  * "none"` for any future SMS that resolves to this row so the
- * "Deep G" -> "user" attribution stops polluting the transaction
+ * "Own Account" -> "user" attribution stops polluting the transaction
  * history. Freeform context the user wants the model to remember
  * ("pani puri vendor", etc.) lives in [MerchantMetadata], so this
  * column stays a tight boolean.

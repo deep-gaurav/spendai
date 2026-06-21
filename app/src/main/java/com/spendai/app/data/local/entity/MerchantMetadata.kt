@@ -15,7 +15,7 @@ import androidx.room.PrimaryKey
  * Examples:
  *  - `(merchantId = 1, kind = NOTE, value = "pani puri vendor")`
  *  - `(merchantId = 1, kind = CATEGORY_HINT, value = "Food")`
- *  - `(merchantId = 1, kind = LABEL, value = "Mohan-ji")`
+ *  - `(merchantId = 1, kind = LABEL, value = "regular-vendor")`
  *
  * A2 reads these rows when it materialises the merchant into the
  * prompt bundle, so a `CATEGORY_HINT` becomes the merchant's

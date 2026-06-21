@@ -291,7 +291,7 @@ class MerchantMutator(
      * Enqueue durable A3 reprompt jobs for every affected
      * transaction. Capped at [MAX_AFFECTED_TXNS_FOR_REPROMPT]
      * so a single mutate_merchant call cannot enqueue hundreds
-     * of jobs (e.g. if the user marks "Mohan" as self and that
+     * of jobs (e.g. if the user marks "Vendor" as self and that
      * merchant has 200 rows). The remaining rows are still
      * excluded from insights via the isSelf flag and the
      * self-transfer links; they just don't get an A3

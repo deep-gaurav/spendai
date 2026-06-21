@@ -88,7 +88,7 @@ sealed class AgenticAction {
      *
      * `matchByName` resolves the model-supplied name to a
      * `merchant.id` via the same normaliser A2 uses, so the
-     * model can say "Deep G" without knowing the row id.
+     * model can say "Own Account" without knowing the row id.
      */
     @Serializable
     @SerialName("mutate_merchant")

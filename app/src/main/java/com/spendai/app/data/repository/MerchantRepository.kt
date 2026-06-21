@@ -48,7 +48,7 @@ class MerchantRepository(
      * KPIs, the category donut, the daily trend, the top-merchant
      * bar, and the day-of-week chart. A2 also picks the flag up on
      * the next SMS and returns `merchant.kind = "none"` for any
-     * matching row, so the "Deep G" attribution stops appearing in
+     * matching row, so the "Own Account" attribution stops appearing in
      * fresh transactions.
      */
     suspend fun setIsSelf(id: Long, isSelf: Boolean) = dao.updateIsSelf(id, isSelf)

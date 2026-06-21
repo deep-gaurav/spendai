@@ -67,7 +67,7 @@ class MerchantRepositoryTest {
     @Test
     fun `setIsSelf flips the boolean`() = runBlocking {
         val id = repo.insert(
-            Merchant(name = "DEEP G", normalizedName = "deep g", firstSeenAt = 1L)
+            Merchant(name = "OWN ACCOUNT", normalizedName = "own account", firstSeenAt = 1L)
         )
         assertEquals(false, repo.getById(id)?.isSelf)
         repo.setIsSelf(id, true)
@@ -79,7 +79,7 @@ class MerchantRepositoryTest {
     @Test
     fun `putMetadata upserts on (merchantId, kind)`() = runBlocking {
         val id = repo.insert(
-            Merchant(name = "MOHAN KUSHWANA", normalizedName = "mohan kushwana", firstSeenAt = 1L)
+            Merchant(name = "VENDOR XYZ", normalizedName = "vendor xyz", firstSeenAt = 1L)
         )
         val first = repo.putMetadata(id, MerchantMetadataKind.NOTE, "first", now = 100L)
         assertTrue(first > 0L)

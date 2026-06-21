@@ -158,7 +158,7 @@ open class SpendAiApp : Application() {
      */
     /**
      * Allowlisted write path the Ask-AI flow uses to save
-     * user-defined merchant knowledge ("Deep G is me",
+     * user-defined merchant knowledge ("Own Account is me",
      * "MOHAN KUSHWANA is pani puri vendor", etc.). Sibling
      * of [sqlExecutor]; like it, it is the structural safety
      * boundary between the LLM and the user's database.

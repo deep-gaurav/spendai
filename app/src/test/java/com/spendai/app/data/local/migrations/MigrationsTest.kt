@@ -54,7 +54,7 @@ class MigrationsTest {
     @Test
     fun `merchant has isSelf column with default false on v9`() = runBlocking {
         val id = db.merchantDao().insert(
-            Merchant(name = "DEEP G", normalizedName = "deep g", firstSeenAt = 1L)
+            Merchant(name = "OWN ACCOUNT", normalizedName = "own account", firstSeenAt = 1L)
         )
         assertEquals(false, db.merchantDao().getById(id)!!.isSelf)
     }
@@ -62,7 +62,7 @@ class MigrationsTest {
     @Test
     fun `merchant metadata round-trips through the dao`() = runBlocking {
         val id = db.merchantDao().insert(
-            Merchant(name = "Mohan", normalizedName = "mohan", firstSeenAt = 1L)
+            Merchant(name = "VENDOR", normalizedName = "vendor", firstSeenAt = 1L)
         )
         db.merchantMetadataDao().upsert(
             com.spendai.app.data.local.entity.MerchantMetadata(
