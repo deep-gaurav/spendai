@@ -14,6 +14,13 @@ An on-device LiteRT-LM backend is still present in the codebase for
 potential future re-enabling, but it is **not exposed in onboarding** and
 is not the default.
 
+## Downloads
+
+Pre-built APKs are published from every tagged release via GitHub Actions.
+Grab the latest signed release APK from the [Releases page](../../releases/latest)
+and sideload it (`adb install -r spendai-release-*.apk`). Debug builds are also
+attached as workflow artifacts on each CI run.
+
 ## Status
 
 Production-ready for personal use:
@@ -111,6 +118,32 @@ The project uses the Gradle wrapper.
 
 Requires Android SDK platform 35 and JDK 17+ (the host running this
 project ships JDK 25, which AGP 8.7.3 supports).
+
+### Continuous integration & signing
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds the
+debug + release APK on every push and pull request. On a `v*` tag it
+publishes a GitHub Release with the signed release APK attached (the
+download link above). The release APK is signed with a keystore kept
+**entirely in GitHub Actions secrets** - no key material is committed.
+
+To set up signing once, generate the keystore locally and add the secrets:
+
+```sh
+./scripts/generate-signing-key.sh            # produces spendai-release.jks (CN=Deep, C=IN)
+base64 -w 0 spendai-release.jks               # copy the full output
+```
+
+Then add four repository secrets (Settings -> Secrets and variables ->
+Actions):
+
+1. `SPENDAI_SIGNING_KEY_BASE64` - the base64 blob from the command above
+2. `SPENDAI_SIGNING_STORE_PASSWORD` - the `-storepass` you used
+3. `SPENDAI_SIGNING_KEY_ALIAS` - defaults to `spendai`
+4. `SPENDAI_SIGNING_KEY_PASSWORD` - the `-keypass` you used
+
+When the secrets are absent (e.g. on a forked PR) CI still builds a
+release APK, just unsigned; the publish-release step is skipped.
 
 ## Run
 

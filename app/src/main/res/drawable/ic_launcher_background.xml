@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Banana cream base fills the adaptive-icon canvas. -->
+    <path android:fillColor="#FFF7D6" android:pathData="M0,0 H108 V108 H0 Z" />
+    <!-- Soft top-left highlight for depth. -->
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.35" android:pathData="M0,0 A108,108 0 0,1 108,108 V0 Z" />
+    <!-- Brand teal pop arc in the bottom-right corner. -->
+    <path android:fillColor="#0F9E8E" android:fillAlpha="0.18" android:pathData="M108,108 A60,60 0 0,0 48,48 L108,48 Z" />
+</vector>
