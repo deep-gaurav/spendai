@@ -60,7 +60,10 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease --no-daemon
+        # Skip lintVital* on CI: AGP auto-attaches it to release assembly and
+        # it adds ~3 min while producing nothing the rolling APK needs. Lint
+        # still runs locally via `./gradlew :app:lint`.
+        run: ./gradlew :app:assembleRelease -x lintVitalRelease -x lintVitalAnalyzeRelease -x lintVitalReportRelease --no-daemon
 
       - name: Locate debug APK
         id: debug
