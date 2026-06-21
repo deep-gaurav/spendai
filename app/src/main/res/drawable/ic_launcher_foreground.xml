@@ -1,59 +1,65 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-
-    <!-- Coin body: mango -> tangerine gradient, chunky ink border (brand style). -->
-    <path android:pathData="M54,54 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient android:type="linear" android:startX="24" android:startY="24"
-                android:endX="84" android:endY="84">
-                <item android:offset="0" android:color="#FFFFB300" />
-                <item android:offset="1" android:color="#FFFF7A00" />
-            </gradient>
-        </aapt:attr>
-        <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="24" android:startY="24"
-                android:endX="84" android:endY="84">
-                <item android:offset="0" android:color="#FF1A0F00" />
-                <item android:offset="1" android:color="#FF1A0F00" />
-            </gradient>
-        </aapt:attr>
-        <aapt:attr name="android:strokeWidth">
-            <item android:value="4" />
-        </aapt:attr>
-    </path>
-
-    <!-- Inner ring (lighter mango) for coin detail. -->
-    <path
-        android:fillColor="#FFD966"
-        android:strokeColor="#1A0F00"
-        android:strokeWidth="2"
-        android:pathData="M54,54 m-22,0 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0 Z" />
-
-    <!-- Rupee glyph (simplified bold ₹: top flag bar + left stem + two slashes). -->
-    <group android:name="rupee">
-        <!-- Top flag bar. -->
-        <path android:fillColor="#1A0F00"
-            android:pathData="M38.9,38.9 H67.7 V43.2 H38.9 Z" />
-        <!-- Left stem (full height of glyph). -->
-        <path android:fillColor="#1A0F00"
-            android:pathData="M38.9,38.9 H42.5 V69.1 H38.9 Z" />
-        <!-- Upper slash. -->
-        <path android:fillColor="#1A0F00"
-            android:pathData="M42.5,50.4 H67.7 V54.4 H42.5 Z" />
-        <!-- Lower slash. -->
-        <path android:fillColor="#1A0F00"
-            android:pathData="M42.5,56.9 H67.7 V60.9 H42.5 Z" />
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!--
+      Smiling-mobile mascot (the same art_sms_mascot used across the app's
+      Home / Insights / Permissions screens), centred with a 20% margin so it
+      stays inside the adaptive-icon safe zone on every launcher mask.
+    -->
+    <group android:translateX="40" android:translateY="40">
+        <!-- Phone body -->
+        <path
+            android:fillColor="#FFB300"
+            android:strokeColor="#1A0F00"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M30,8 L78,8 A8,8 0 0 1 86,16 L86,108 A8,8 0 0 1 78,116 L30,116 A8,8 0 0 1 22,108 L22,16 A8,8 0 0 1 30,8 Z" />
+        <!-- Phone screen -->
+        <path
+            android:fillColor="#FFF7D6"
+            android:strokeColor="#1A0F00"
+            android:strokeWidth="3"
+            android:pathData="M30,20 L78,20 L78,98 L30,98 Z" />
+        <!-- Left eye -->
+        <path
+            android:fillColor="#1A0F00"
+            android:pathData="M42,42 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+        <!-- Right eye -->
+        <path
+            android:fillColor="#1A0F00"
+            android:pathData="M66,42 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+        <!-- Smile -->
+        <path
+            android:strokeColor="#1A0F00"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M44,66 Q54,76 64,66" />
+        <!-- Cheeks -->
+        <path
+            android:fillColor="#FF7A00"
+            android:pathData="M36,60 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+        <path
+            android:fillColor="#FF7A00"
+            android:pathData="M72,60 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+        <!-- Credit card -->
+        <path
+            android:fillColor="#9DEAE0"
+            android:strokeColor="#1A0F00"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M62,76 L106,76 A4,4 0 0 1 110,80 L110,102 A4,4 0 0 1 106,106 L62,106 A4,4 0 0 1 58,102 L58,80 A4,4 0 0 1 62,76 Z" />
+        <!-- Card magnetic stripe -->
+        <path
+            android:fillColor="#1A0F00"
+            android:pathData="M58,84 L110,84 L110,90 L58,90 Z" />
+        <!-- Card chip -->
+        <path
+            android:fillColor="#FFD966"
+            android:strokeColor="#1A0F00"
+            android:strokeWidth="2"
+            android:pathData="M66,94 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
     </group>
-
-    <!-- Teal 4-point sparkle, top-right of the coin. -->
-    <path
-        android:fillColor="#0F9E8E"
-        android:strokeColor="#1A0F00"
-        android:strokeWidth="1.5"
-        android:strokeLineJoin="round"
-        android:pathData="M76,24 L78.5,30.5 L85,33 L78.5,35.5 L76,42 L73.5,35.5 L67,33 L73.5,30.5 Z" />
 </vector>
