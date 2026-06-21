@@ -65,10 +65,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Sign with the release keystore when its secrets are present;
-            // otherwise fall back to the debug keystore so the release APK
-            // stays installable for the rolling CI build (debug-signed, fine
-            // for personal/preview distribution - not a production signature).
+            // When keystore env vars are present, sign with
+            // signingConfigs.release. Otherwise the release variant falls
+            // back to the debug keystore so `assembleRelease` still produces
+            // an installable APK for local/CI smoke builds.
             signingConfig = if (hasSigningKey) {
                 signingConfigs.getByName("release")
             } else {
