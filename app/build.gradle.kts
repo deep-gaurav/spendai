@@ -35,10 +35,13 @@ android {
     // the release APK is left unsigned so local dev builds still succeed.
     signingConfigs {
         create("release") {
-            val storeFile = providers.environmentVariables().get("SPENDAI_SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
-            val storePassword = providers.environmentVariables().get("SPENDAI_SIGNING_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-            val keyAlias = providers.environmentVariables().get("SPENDAI_SIGNING_KEY_ALIAS")?.takeIf { it.isNotBlank() }
-            val keyPassword = providers.environmentVariables().get("SPENDAI_SIGNING_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+            // Read signing secrets from the process environment (set by CI
+            // from GitHub Actions secrets). System.getenv avoids the
+            // android-extension receiver that hides Project.providers here.
+            val storeFile = System.getenv("SPENDAI_SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
+            val storePassword = System.getenv("SPENDAI_SIGNING_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
+            val keyAlias = System.getenv("SPENDAI_SIGNING_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+            val keyPassword = System.getenv("SPENDAI_SIGNING_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
             // Only wire the keystore when every secret is present AND the
             // keystore file actually exists on disk. Otherwise the release
             // variant builds unsigned (CI on a forked PR has no secrets).
