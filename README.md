@@ -21,13 +21,11 @@
 
 The latest build is published automatically to the **rolling release**, which is recreated on every successful `master` push.
 
-**Direct APK:** [`spendai.apk`](../../releases/download/rolling/spendai.apk) &mdash; debug-signed, minified.
+**Direct APK:** [`spendai.apk`](../../releases/download/rolling/spendai.apk) &mdash; minified release build.
 
 ```sh
 adb install -r spendai.apk
 ```
-
-> The rolling build is debug-signed for convenience. For a properly signed release, push a `v*` tag after configuring the signing secrets in [CI &amp; signing](#ci--signing).
 
 ## What it does
 
@@ -65,25 +63,9 @@ mutate_merchant ----------- MerchantMutator -> merchant / merchant_metadata + re
 
 Full agent + Ask-AI design lives in [AGENTS.md](AGENTS.md). Source is under `app/src/main/java/com/spendai/app/` (`data/`, `domain/agent/`, `inference/`, `ui/`).
 
-## CI &amp; signing
+## CI
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) builds debug + release APK on every push/PR, publishes the rolling release on `master`, and (on a `v*` tag with secrets) a signed versioned release. The release signing key lives entirely in GitHub secrets &mdash; no key material is committed.
-
-One-time signing setup:
-
-```sh
-./scripts/generate-signing-key.sh        # spendai-release.jks, CN=Deep, C=IN
-base64 -w 0 spendai-release.jks          # paste into the secret below
-```
-
-Add these repository secrets (Settings &rarr; Secrets and variables &rarr; Actions):
-
-1. `SPENDAI_SIGNING_KEY_BASE64` &mdash; the base64 blob above
-2. `SPENDAI_SIGNING_STORE_PASSWORD` &mdash; your `-storepass`
-3. `SPENDAI_SIGNING_KEY_ALIAS` &mdash; defaults to `spendai`
-4. `SPENDAI_SIGNING_KEY_PASSWORD` &mdash; your `-keypass`
-
-Then `git tag v0.1 && git push --tags` to ship a signed release.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds the app on every push/PR and republishes the [rolling release](../../releases/tag/rolling) on `master`. Release builds are signed via repository secrets &mdash; no key material is committed to the repo.
 
 ## Permissions
 
