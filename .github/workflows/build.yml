@@ -41,20 +41,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Install Android SDK components
-        run: |
-          set -e
-          # The runner ships sdkmanager under cmdline-tools, not always on PATH.
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)"
-          fi
-          if [ -z "$SDKMANAGER" ]; then
-            echo "sdkmanager not found; assuming SDK components already present" >&2
-            exit 0
-          fi
-          yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android build packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Materialise signing keystore from secret
         if: env.HAS_SIGNING_KEY == 'true'
