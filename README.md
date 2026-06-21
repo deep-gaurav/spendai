@@ -1,16 +1,18 @@
 # SpendAI
 
-Open-source, local-first, on-device expense tracking for Android. SpendAI
-intercepts financial SMS messages, extracts structured transactions through
-a three-agent LLM pipeline (A1 parse → A2 resolve → A3 audit), persists
+Open-source, private expense tracking for Android. SpendAI intercepts
+financial SMS messages, extracts structured transactions through a
+three-agent LLM pipeline (A1 parse → A2 resolve → A3 audit), persists
 them in a Room database, and exposes them through a multi-screen Compose
 UI with a hand-rolled agentic "Ask AI" chat on top.
 
-**No data leaves the device by default.** The model can run against a
-local on-device backend (LiteRT-LM) or against an external API the user
-explicitly configures (Gemini, OpenAI-compatible, Anthropic, ZHIPU,
-Custom). The user controls which, and which model, from the in-app
-**Model settings** screen.
+The model runs against an LLM API the user explicitly configures from the
+in-app **Model settings** screen — Gemini (default), OpenAI-compatible,
+Anthropic, ZHIPU, a self-hosted Ollama instance, or a Custom endpoint. The
+user supplies the API key + base URL + model name; nothing is hard-coded.
+An on-device LiteRT-LM backend is still present in the codebase for
+potential future re-enabling, but it is **not exposed in onboarding** and
+is not the default.
 
 ## Status
 
@@ -30,11 +32,17 @@ Production-ready for personal use:
   Compose charts.
 * **Ask AI** — multi-turn chat with two tools (`query_database` for
   read-only analytics, `mutate_merchant` for the knowledge layer).
-  Reasoning-model friendly: strips `<think>` blocks, tries every
+  Reasoning-model friendly: strips thinking blocks, tries every
   balanced JSON object in the response, retries on parse failure,
   and runs a model-as-judge verifier when the user opts in.
 * **Edit / Review / Debug log** screens for the audit trail and manual
   correction flow.
+
+> Note: the original design goal was fully on-device inference. It did not
+> perform well enough, so the app now ships against user-configured LLM
+> APIs. The on-device inference code has been kept in-tree so it can be
+> re-enabled later; user-facing strings and onboarding no longer advertise
+> it.
 
 ## Architecture
 
@@ -72,7 +80,7 @@ spendai/
         domain/agent/                        # A1, A2, A3 + JSON contracts
         domain/agent/insights/               # Ask AI: agent, actions, tool results
         domain/ingestion/IngestionPipeline.kt
-        inference/GemmaInferenceEngine.kt    # 5 backends, OkHttp, rate-limit backoff
+        inference/GemmaInferenceEngine.kt    # API backends + retained on-device backend
         ui/                                  # Compose screens
           home/
           transactions/
@@ -84,7 +92,7 @@ spendai/
           debug/
           setup/
           permissions/
-          download/
+          download/                          # onboarding: model/API configuration
     src/test/                               # JVM unit tests (Robolectric + mockk + Turbine)
     src/androidTest/                        # instrumented tests
   app/schemas/                               # Room schema exports (per version)
@@ -124,7 +132,7 @@ menu with the "knowledge" surfaces:
 * **Debug log** — every ingestion run lands here with the A1 / A2 / A3
   prompt + response + outcome.
 * **Model settings** — switch the inference backend, set the API key +
-  base URL + model name, manage the on-device LiteRT-LM session.
+  base URL + model name.
 
 The **Insights** screen has two surfaces:
 
@@ -136,24 +144,24 @@ The **Insights** screen has two surfaces:
 
 ## Model setup
 
-The on-device backend (LiteRT-LM) is **opt-in**. By default the app
-talks to the user-configured external API. The user can stay entirely
-offline by:
+By default the app talks to a user-configured LLM API. To use a hosted
+model (Gemini, OpenAI-compatible, Anthropic, ZHIPU, Custom) or a
+self-hosted Ollama instance: open **Model settings** (or step through
+onboarding, which lands on the **Model Configuration** screen), pick the
+backend, paste the API key + (optionally) base URL + model name, and tap
+**Probe** to confirm the engine can reach it. We recommend Google Gemini
+in AI Studio as a free option (using `gemma-4-31b-it`). SpendAI requires
+a model with at least a 64K context window to resolve daily ledger
+groupings.
 
-1. Sideloading the Gemma 4 E2B model to the app's private external
-   dir:
-   ```sh
-   adb push gemma-4-E2B-it.litertlm \
-     /sdcard/Android/data/com.spendai.app/files/models/
-   ```
-2. Opening **Model settings**, switching the backend to
-   **On-device (LiteRT-LM)**, and tapping the "Probe" button to
-   warm the engine.
-
-If the user wants to use a hosted model (Gemini, OpenAI-compatible,
-Anthropic, ZHIPU, Custom), the steps are: open **Model settings**,
-pick the backend, paste the API key + (optionally) base URL + model
-name, and tap "Probe" to confirm the engine can talk to it.
+The on-device LiteRT-LM backend is retained in
+[inference/GemmaInferenceEngine.kt](app/src/main/java/com/spendai/app/inference/GemmaInferenceEngine.kt)
+and [inference/BackendStrategy.kt](app/src/main/java/com/spendai/app/inference/BackendStrategy.kt)
+but is **not surfaced in onboarding or the Model settings UI**. Re-enabling
+it is a code change (wire the backend selector back into the settings
+screen and point the engine at a sideloaded model); the inference path and
+hardware-acceleration fallback chain below remain in place for that
+future use.
 
 ## Permissions
 
@@ -163,13 +171,13 @@ and must be granted at runtime before the SMS receiver will fire. The
 onboarding flow walks the user through the consent screen before the
 rest of the UI unlocks.
 
-## Hardware acceleration (on-device backend only)
+## Hardware acceleration (on-device backend, currently dormant)
 
-The local inference engine tries the most powerful backend first and
-falls through on failure:
+The on-device inference engine (LiteRT-LM, not exposed in the UI today)
+tries the most powerful backend first and falls through on failure:
 
 | Order | Backend | Where it lands                       | Perf (S26 Ultra) |
-|------:|---------|--------------------------------------|------------------|
+------:|---------|--------------------------------------|------------------|
 | 1     | NPU     | Qualcomm QNN (`libQnnHtp.so`)        | best, fragile    |
 | 2     | GPU     | OpenCL / ML Drift                    | 3.8k tk/s prefill|
 | 3     | CPU     | XNNPack                              | 557 tk/s prefill |
