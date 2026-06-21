@@ -17,17 +17,18 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      release-apk: ${{ steps.release.outputs.name }}
-      debug-apk: ${{ steps.debug.outputs.name }}
     env:
       # Decode the signing keystore from a GitHub secret. When absent (e.g.
       # on a forked PR) the release APK is built unsigned and the publish
-      # step below is skipped.
+      # step below is skipped. We surface presence as an env flag so step
+      # `if` conditions never reference the secrets context directly.
       SPENDAI_SIGNING_STORE_FILE: ${{ github.workspace }}/keystore/spendai-release.jks
       SPENDAI_SIGNING_STORE_PASSWORD: ${{ secrets.SPENDAI_SIGNING_STORE_PASSWORD }}
       SPENDAI_SIGNING_KEY_ALIAS: ${{ secrets.SPENDAI_SIGNING_KEY_ALIAS }}
       SPENDAI_SIGNING_KEY_PASSWORD: ${{ secrets.SPENDAI_SIGNING_KEY_PASSWORD }}
+      SPENDAI_SIGNING_KEY_BASE64: ${{ secrets.SPENDAI_SIGNING_KEY_BASE64 }}
+      HAS_SIGNING_KEY: ${{ secrets.SPENDAI_SIGNING_KEY_BASE64 != '' }}
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,13 +47,11 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Materialise signing keystore from secret
-        if: secrets.SPENDAI_SIGNING_KEY_BASE64 != ''
+        if: env.HAS_SIGNING_KEY == 'true'
         run: |
           mkdir -p keystore
           printf '%s' "${SPENDAI_SIGNING_KEY_BASE64}" | base64 -d > "${SPENDAI_SIGNING_STORE_FILE}"
           echo "Keystore decoded."
-        env:
-          SPENDAI_SIGNING_KEY_BASE64: ${{ secrets.SPENDAI_SIGNING_KEY_BASE64 }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
@@ -63,7 +62,7 @@ jobs:
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Locate APKs
+      - name: Locate debug APK
         id: debug
         run: |
           f=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
@@ -77,7 +76,7 @@ jobs:
           echo "path=$f" >> "$GITHUB_OUTPUT"
 
       - name: Verify release APK is signed
-        if: secrets.SPENDAI_SIGNING_KEY_BASE64 != ''
+        if: env.HAS_SIGNING_KEY == 'true'
         run: |
           APKSIGNER="$(ls "${ANDROID_HOME}"/build-tools/*/apksigner | sort | tail -1)"
           "$APKSIGNER" verify --print-certs "${{ steps.release.outputs.path }}" | grep -q "Signer #1" \
@@ -96,7 +95,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release with the signed APK
-        if: startsWith(github.ref, 'refs/tags/v') && secrets.SPENDAI_SIGNING_KEY_BASE64 != ''
+        if: env.IS_TAG == 'true' && env.HAS_SIGNING_KEY == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
