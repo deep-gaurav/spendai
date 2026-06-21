@@ -31,27 +31,25 @@ android {
     // Release signing is driven by environment variables so the keystore
     // never lives in the repo. In CI these come from GitHub Actions
     // secrets (see .github/workflows/build.yml). Locally, export the four
-    // SPENDAI_SIGNING_* vars before running `assembleRelease`; when absent
-    // the release APK is left unsigned so local dev builds still succeed.
+    // SPENDAI_SIGNING_* vars before running `assembleRelease`. When the
+    // keystore / secrets are absent the release variant is left UNSIGNED:
+    // we do NOT attach a SigningConfig at all (attaching one with a null
+    // storeFile makes packageRelease hard-fail), so AGP emits the standard
+    // app-release-unsigned.apk and the debug variant remains the installable one.
+    val signingStoreFile = System.getenv("SPENDAI_SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
+    val signingStorePassword = System.getenv("SPENDAI_SIGNING_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
+    val signingKeyAlias = System.getenv("SPENDAI_SIGNING_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    val signingKeyPassword = System.getenv("SPENDAI_SIGNING_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    val hasSigningKey = signingStoreFile != null && signingStorePassword != null &&
+        signingKeyAlias != null && signingKeyPassword != null && file(signingStoreFile!!).exists()
+
     signingConfigs {
         create("release") {
-            // Read signing secrets from the process environment (set by CI
-            // from GitHub Actions secrets). System.getenv avoids the
-            // android-extension receiver that hides Project.providers here.
-            val storeFile = System.getenv("SPENDAI_SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
-            val storePassword = System.getenv("SPENDAI_SIGNING_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-            val keyAlias = System.getenv("SPENDAI_SIGNING_KEY_ALIAS")?.takeIf { it.isNotBlank() }
-            val keyPassword = System.getenv("SPENDAI_SIGNING_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-            // Only wire the keystore when every secret is present AND the
-            // keystore file actually exists on disk. Otherwise the release
-            // variant builds unsigned (CI on a forked PR has no secrets).
-            if (storeFile != null && storePassword != null && keyAlias != null && keyPassword != null &&
-                file(storeFile).exists()
-            ) {
-                this.storeFile = file(storeFile)
-                this.storePassword = storePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
+            if (hasSigningKey) {
+                storeFile = file(signingStoreFile!!)
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
             }
         }
     }
@@ -67,10 +65,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Sign with the env-driven release keystore when its secrets are
-            // present; otherwise the variant is built unsigned (debug-signed
-            // installs come from the `debug` variant).
-            signingConfig = signingConfigs.getByName("release")
+            // Only attach the signing config when the keystore is wired;
+            // otherwise AGP produces an unsigned release APK.
+            if (hasSigningKey) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
