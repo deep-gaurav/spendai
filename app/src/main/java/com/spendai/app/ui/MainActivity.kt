@@ -5,18 +5,24 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import com.spendai.app.ui.nav.Routes
 import com.spendai.app.ui.nav.SpendAiNavHost
 import com.spendai.app.ui.theme.SpendAiTheme
+import com.spendai.app.ui.theme.ThemeMode
+import com.spendai.app.ui.theme.ThemeViewModel
 
 /**
  * Single Activity for SpendAI. Hosts the Compose nav graph and applies
@@ -73,12 +79,21 @@ private fun SpendAiApp(
     onDeepLinkConsumed: () -> Unit,
 ) {
     val navController = remember { mutableStateOf<NavHostController?>(null) }
-    SpendAiTheme {
+    val themeViewModel: ThemeViewModel = viewModel(factory = ThemeViewModel.Factory)
+    val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
+    val darkTheme = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+    SpendAiTheme(darkTheme = darkTheme) {
         Surface(modifier = Modifier.fillMaxSize()) {
             SpendAiNavHost(
                 deepLink = pendingDeepLink,
                 onDeepLinkConsumed = onDeepLinkConsumed,
                 registerNavController = { navController.value = it },
+                themeMode = themeMode,
+                onSetThemeMode = themeViewModel::setThemeMode,
             )
         }
     }

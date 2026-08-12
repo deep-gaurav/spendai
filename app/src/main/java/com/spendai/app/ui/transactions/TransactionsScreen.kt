@@ -15,9 +15,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -43,6 +49,7 @@ import com.spendai.app.SpendAiApp
 import com.spendai.app.data.local.entity.RawSmsMessage
 import com.spendai.app.data.local.entity.SmsStatus
 import com.spendai.app.data.local.entity.TransactionDirection
+import com.spendai.app.domain.model.TransactionListItem
 import com.spendai.app.ui.components.SectionLabel
 import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.theme.Dimens
@@ -78,10 +85,31 @@ fun TransactionsScreen(
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.onBackground,
         )
+        if (ui.hasAnyTransactions) {
+            OutlinedTextField(
+                value = ui.query,
+                onValueChange = viewModel::onQueryChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text(stringResource(R.string.transactions_search_hint)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (ui.query.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.onQueryChange("") }) {
+                            Icon(Icons.Outlined.Clear, contentDescription = stringResource(R.string.transactions_search_clear))
+                        }
+                    }
+                },
+            )
+        }
         if (ui.grouped.isEmpty()) {
             StickerCard {
                 Text(
-                    text = stringResource(R.string.transactions_empty),
+                    text = if (ui.query.isBlank()) {
+                        stringResource(R.string.transactions_empty)
+                    } else {
+                        stringResource(R.string.transactions_search_empty)
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
