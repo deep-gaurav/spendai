@@ -2,6 +2,7 @@ package com.spendai.app.ui.nav
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Receipt
@@ -41,6 +42,8 @@ import com.spendai.app.ui.settings.ModelSettingsScreen
 import com.spendai.app.ui.setup.SetupViewModel
 import com.spendai.app.ui.sources.SourcesScreen
 import com.spendai.app.ui.test.TestScreen
+import com.spendai.app.ui.tracking.TrackingMonthDetailScreen
+import com.spendai.app.ui.tracking.TrackingScreen
 import com.spendai.app.ui.transactions.TransactionsScreen
 import com.spendai.app.ui.debug.DebugLogScreen
 import com.spendai.app.ui.debug.DebugLogDetailScreen
@@ -51,6 +54,9 @@ object Routes {
     const val TEST = "test"
     const val HOME = "home"
     const val TRANSACTIONS = "transactions"
+    const val TRACKING = "tracking"
+    const val TRACKING_MONTH_DETAIL = "tracking/{yearMonth}"
+    fun trackingMonthDetail(yearMonth: String) = "tracking/$yearMonth"
     const val INSIGHTS = "insights"
     const val INSIGHTS_AGENT = "insights/agent"
     const val MERCHANTS = "merchants"
@@ -73,6 +79,7 @@ private data class BottomDest(
 private val bottomDestinations = listOf(
     BottomDest(Routes.HOME, R.string.nav_home, Icons.Outlined.Home),
     BottomDest(Routes.TRANSACTIONS, R.string.nav_transactions, Icons.Outlined.Receipt),
+    BottomDest(Routes.TRACKING, R.string.nav_tracking, Icons.Outlined.CalendarMonth),
     BottomDest(Routes.INSIGHTS, R.string.nav_insights, Icons.Outlined.Insights),
 )
 
@@ -83,6 +90,8 @@ fun SpendAiNavHost(
     deepLink: DeepLink? = null,
     onDeepLinkConsumed: () -> Unit = {},
     registerNavController: (NavHostController) -> Unit = {},
+    themeMode: com.spendai.app.ui.theme.ThemeMode = com.spendai.app.ui.theme.ThemeMode.SYSTEM,
+    onSetThemeMode: (com.spendai.app.ui.theme.ThemeMode) -> Unit = {},
 ) {
     LaunchedEffect(deepLink) {
         val link = deepLink ?: return@LaunchedEffect
@@ -99,7 +108,8 @@ fun SpendAiNavHost(
                     current == Routes.INSIGHTS_AGENT || current == Routes.REVIEW ||
                     current == Routes.SOURCES || current == Routes.MERCHANTS ||
                     current == Routes.MODEL_SETTINGS ||
-                    current == Routes.DEBUG_LOG || current.startsWith("debugLogDetail")
+                    current == Routes.DEBUG_LOG || current.startsWith("debugLogDetail") ||
+                    current == Routes.TRACKING || current.startsWith("tracking/")
                 ) {
                     navController.navigate(Routes.transactionDetail(link.id)) {
                         launchSingleTop = true
@@ -176,6 +186,8 @@ fun SpendAiNavHost(
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
                     onOpenModelSettings = { navController.navigate(Routes.MODEL_SETTINGS) },
                     onOpenMerchants = { navController.navigate(Routes.MERCHANTS) },
+                    themeMode = themeMode,
+                    onSetThemeMode = onSetThemeMode,
                 )
             }
             composable(Routes.TRANSACTIONS) {
@@ -193,6 +205,26 @@ fun SpendAiNavHost(
                 EditTransactionScreen(
                     transactionId = id,
                     onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.TRACKING) {
+                TrackingScreen(
+                    onOpenMonth = { yearMonth ->
+                        navController.navigate(Routes.trackingMonthDetail(yearMonth))
+                    },
+                )
+            }
+            composable(
+                route = Routes.TRACKING_MONTH_DETAIL,
+                arguments = listOf(androidx.navigation.navArgument("yearMonth") { type = androidx.navigation.NavType.StringType }),
+            ) { backStackEntry ->
+                val yearMonth = backStackEntry.arguments?.getString("yearMonth") ?: ""
+                TrackingMonthDetailScreen(
+                    yearMonth = yearMonth,
+                    onBack = { navController.popBackStack() },
+                    onTransactionClick = { id ->
+                        navController.navigate(Routes.transactionDetail(id))
+                    },
                 )
             }
             composable(Routes.INSIGHTS) {

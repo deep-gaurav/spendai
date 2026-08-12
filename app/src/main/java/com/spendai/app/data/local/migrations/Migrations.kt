@@ -468,3 +468,34 @@ val MIGRATION_8_9: Migration = object : Migration(8, 9) {
         )
     }
 }
+
+/**
+ * v9 -> v10: month-wise tracking history backup.
+ *
+ * Adds the [com.spendai.app.data.local.entity.MonthlySnapshot]
+ * table. The Tracking screen writes one row per (calendar month,
+ * currency) every time it recomputes totals from
+ * `spend_transaction`, so the month-wise history survives even if
+ * the source transactions are later edited or deleted. Purely
+ * additive — no existing table changes.
+ */
+val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `monthly_snapshot` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`yearMonth` TEXT NOT NULL, " +
+                "`currency` TEXT NOT NULL, " +
+                "`totalDebitPaise` INTEGER NOT NULL, " +
+                "`totalCreditPaise` INTEGER NOT NULL, " +
+                "`txnCount` INTEGER NOT NULL, " +
+                "`firstTxnAtMillis` INTEGER, " +
+                "`lastTxnAtMillis` INTEGER, " +
+                "`updatedAt` INTEGER NOT NULL)"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_monthly_snapshot_yearMonth_currency` " +
+                "ON `monthly_snapshot` (`yearMonth`, `currency`)"
+        )
+    }
+}

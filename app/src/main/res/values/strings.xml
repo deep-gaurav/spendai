@@ -61,6 +61,12 @@
     <string name="home_subtitle">You\'re all set. The main app ships in the next release.</string>
     <string name="home_overflow_rerun">Re-run setup</string>
     <string name="home_overflow_model_settings">Model settings</string>
+    <string name="home_overflow_theme">Theme</string>
+    <string name="home_theme_dialog_title">Choose theme</string>
+    <string name="home_theme_dialog_close">Close</string>
+    <string name="home_theme_system">System default</string>
+    <string name="home_theme_light">Light</string>
+    <string name="home_theme_dark">Dark</string>
     <string name="model_settings_title">Model settings</string>
     <string name="model_settings_subtitle">Change the LLM provider, model, and key used for SMS parsing. Your saved permissions and downloaded data are not affected.</string>
     <string name="model_settings_provider_label">LLM Provider</string>
@@ -103,6 +109,9 @@
     <string name="transactions_empty">No transactions yet.</string>
     <string name="transactions_loading">Loading…</string>
     <string name="transactions_amount_format">%1$s%2$s %3$s</string>
+    <string name="transactions_search_hint">Search title, merchant, category, account, amount…</string>
+    <string name="transactions_search_clear">Clear search</string>
+    <string name="transactions_search_empty">No transactions match your search.</string>
 
     <!-- Insights screen -->
     <string name="insights_title">Insights</string>
@@ -124,7 +133,21 @@
     <!-- Bottom nav -->
     <string name="nav_home">Home</string>
     <string name="nav_transactions">Transactions</string>
+    <string name="nav_tracking">Tracking</string>
     <string name="nav_insights">Insights</string>
+
+    <!-- Tracking screen (month-wise history) -->
+    <string name="tracking_title">Tracking</string>
+    <string name="tracking_empty">No transactions yet. Your month-wise history will show up here.</string>
+    <string name="tracking_menu">More options</string>
+    <string name="tracking_spent_label">Spent</string>
+    <string name="tracking_income_label">Income</string>
+    <string name="tracking_txns_label">Txns</string>
+    <string name="tracking_export">Export backup</string>
+    <string name="tracking_import">Import backup</string>
+    <string name="tracking_export_error">Couldn\'t export backup.</string>
+    <string name="tracking_import_success">Imported %1$d month(s) from backup</string>
+    <string name="tracking_import_error">Couldn\'t import backup. Make sure it\'s a SpendAI tracking backup file.</string>
     <!-- Insights screen (auto insights) -->
     <string name="insights_window_this_month">This month</string>
     <string name="insights_window_last_30">Last 30 days</string>

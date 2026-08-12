@@ -15,6 +15,7 @@ import com.spendai.app.data.local.dao.LinkedSmsDao
 import com.spendai.app.data.local.dao.ManualCorrectionDao
 import com.spendai.app.data.local.dao.MerchantDao
 import com.spendai.app.data.local.dao.MerchantMetadataDao
+import com.spendai.app.data.local.dao.MonthlySnapshotDao
 import com.spendai.app.data.local.dao.ParsedSmsDao
 import com.spendai.app.data.local.dao.PendingReviewDao
 import com.spendai.app.data.local.dao.RepromptJobDao
@@ -28,6 +29,7 @@ import com.spendai.app.data.local.entity.IngestionLog
 import com.spendai.app.data.local.entity.ManualCorrection
 import com.spendai.app.data.local.entity.Merchant
 import com.spendai.app.data.local.entity.MerchantMetadata
+import com.spendai.app.data.local.entity.MonthlySnapshot
 import com.spendai.app.data.local.entity.ParsedSms
 import com.spendai.app.data.local.entity.PendingReview
 import com.spendai.app.data.local.entity.RawSmsMessage
@@ -40,6 +42,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_5_6
 import com.spendai.app.data.local.migrations.MIGRATION_6_7
 import com.spendai.app.data.local.migrations.MIGRATION_7_8
 import com.spendai.app.data.local.migrations.MIGRATION_8_9
+import com.spendai.app.data.local.migrations.MIGRATION_9_10
 
 /**
  * The single Room database for SpendAI.
@@ -85,6 +88,11 @@ import com.spendai.app.data.local.migrations.MIGRATION_8_9
  * user-defined merchant knowledge (counterparty-is-me, freeform
  * notes, category hints). The InsightsDao exclusion predicate
  * now also drops transactions whose merchant has `isSelf = 1`.
+ *
+ * ## v9 -> v10
+ *
+ * Adds the `monthly_snapshot` table — the local backup for the
+ * Tracking screen's month-wise history. See MIGRATION_9_10.
  */
 @Database(
     entities = [
@@ -101,8 +109,9 @@ import com.spendai.app.data.local.migrations.MIGRATION_8_9
         Category::class,
         ManualCorrection::class,
         RepromptJob::class,
+        MonthlySnapshot::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -123,6 +132,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun insightsDao(): InsightsDao
     abstract fun repromptJobDao(): RepromptJobDao
+    abstract fun monthlySnapshotDao(): MonthlySnapshotDao
 
     companion object {
         private const val DB_NAME = "spendai.db"
@@ -135,6 +145,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
+            MIGRATION_9_10,
         )
 
         @Volatile

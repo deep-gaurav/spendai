@@ -17,6 +17,7 @@ import com.spendai.app.data.repository.PendingReviewRepository
 import com.spendai.app.data.repository.IngestionLogRepository
 import com.spendai.app.data.repository.InsightsRepository
 import com.spendai.app.data.repository.ManualCorrectionRepository
+import com.spendai.app.data.repository.MonthlySnapshotRepository
 import com.spendai.app.data.repository.RepromptJobRepository
 import com.spendai.app.data.repository.SmsRepository
 import com.spendai.app.data.repository.TransactionLinkRepository
@@ -98,6 +99,10 @@ open class SpendAiApp : Application() {
 
     val insightsRepository: InsightsRepository by lazy {
         InsightsRepository(database.insightsDao())
+    }
+
+    val monthlySnapshotRepository: MonthlySnapshotRepository by lazy {
+        MonthlySnapshotRepository(database.monthlySnapshotDao())
     }
 
     val gemmaInferenceEngine: GemmaInferenceEngine by lazy { GemmaInferenceEngine() }

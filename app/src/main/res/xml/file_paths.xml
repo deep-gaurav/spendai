@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Exposes only the app's "backups" subfolder of external-files
+  storage through the FileProvider, so TrackingBackupManager's
+  exported JSON files can be shared via a content:// Uri without
+  granting access to the rest of app-private storage.
+-->
+<paths>
+    <external-files-path name="backups" path="backups/" />
+</paths>

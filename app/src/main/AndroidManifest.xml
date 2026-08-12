@@ -90,6 +90,23 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!--
+          Exposes exported Tracking backup JSON files (see
+          TrackingBackupManager) as content:// Uris so they can be
+          shared or opened by other apps without granting broader
+          file access. Scoped to the "backups" subfolder only via
+          res/xml/file_paths.xml.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".receiver.SmsReceiver"
             android:exported="true"

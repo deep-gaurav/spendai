@@ -15,14 +15,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -55,6 +58,7 @@ import com.spendai.app.ui.components.StickerCard
 import com.spendai.app.ui.ingest.IngestRangePickerDialog
 import com.spendai.app.ui.setup.SetupViewModel
 import com.spendai.app.ui.theme.Dimens
+import com.spendai.app.ui.theme.ThemeMode
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -69,11 +73,14 @@ fun HomeScreen(
     onOpenSources: () -> Unit = {},
     onOpenModelSettings: () -> Unit = {},
     onOpenMerchants: () -> Unit = {},
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onSetThemeMode: (ThemeMode) -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
     var pickerOpen by remember { mutableStateOf(false) }
+    var themeDialogOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.warmUpEngine() }
 
@@ -125,6 +132,14 @@ fun HomeScreen(
                             leadingIcon = { CartoonIcon(R.drawable.ic_refresh_cartoon, size = 24.dp) },
                         )
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.home_overflow_theme)) },
+                            onClick = {
+                                menuOpen = false
+                                themeDialogOpen = true
+                            },
+                            leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
+                        )
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.home_overflow_rerun)) },
                             onClick = {
                                 menuOpen = false
@@ -174,6 +189,56 @@ fun HomeScreen(
             onDismiss = { pickerOpen = false },
         )
     }
+
+    if (themeDialogOpen) {
+        ThemeModeDialog(
+            current = themeMode,
+            onSelect = { mode ->
+                onSetThemeMode(mode)
+                themeDialogOpen = false
+            },
+            onDismiss = { themeDialogOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun ThemeModeDialog(
+    current: ThemeMode,
+    onSelect: (ThemeMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.home_theme_dialog_title)) },
+        text = {
+            Column {
+                ThemeMode.entries.forEach { mode ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(mode) }
+                            .padding(vertical = Dimens.SpaceXs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = mode == current, onClick = { onSelect(mode) })
+                        Spacer(Modifier.size(Dimens.SpaceXs))
+                        Text(text = themeModeLabel(mode), style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.home_theme_dialog_close)) }
+        },
+    )
+}
+
+@Composable
+private fun themeModeLabel(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> stringResource(R.string.home_theme_system)
+    ThemeMode.LIGHT -> stringResource(R.string.home_theme_light)
+    ThemeMode.DARK -> stringResource(R.string.home_theme_dark)
 }
 
 @Composable
