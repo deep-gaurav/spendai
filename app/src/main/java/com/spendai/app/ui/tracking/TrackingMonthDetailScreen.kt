@@ -42,6 +42,8 @@ import com.spendai.app.data.local.entity.TransactionDirection
 import com.spendai.app.domain.model.TransactionListItem
 import com.spendai.app.ui.components.SectionLabel
 import com.spendai.app.ui.components.StickerCard
+import com.spendai.app.ui.insights.components.KpiStrip
+import com.spendai.app.ui.insights.format.InsightsFormat
 import com.spendai.app.ui.theme.Dimens
 import java.time.Instant
 import java.time.YearMonth
@@ -73,6 +75,9 @@ fun TrackingMonthDetailScreen(
             ?.map { (day, items) -> day to items }
             ?: emptyList()
     }
+    val summary = remember(group, ui.months) {
+        group?.let { buildMonthSummary(it, ui.months) }
+    }
     val title = ym?.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())) ?: yearMonth
 
     Scaffold(
@@ -94,7 +99,11 @@ fun TrackingMonthDetailScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = Dimens.SpaceMd, vertical = Dimens.SpaceSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpaceMd),
         ) {
+            if (summary != null) {
+                MonthSummaryCard(summary)
+            }
             if (dayGroups.isEmpty()) {
                 StickerCard {
                     Text(
@@ -115,6 +124,126 @@ fun TrackingMonthDetailScreen(
                                     MonthTxnRow(item = item, onClick = { onTransactionClick(item.details.id) })
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One month's KPI strip + top-category breakdown, derived client-side from already-loaded [TrackingMonthGroup.items]. */
+private data class MonthSummary(
+    val currency: String,
+    val spentPaise: Long,
+    val incomePaise: Long,
+    val debitCount: Int,
+    val avgPaise: Long,
+    val spentDeltaPct: Float?,
+    val incomeDeltaPct: Float?,
+    val topCategories: List<CategorySpend>,
+)
+
+private data class CategorySpend(
+    val emoji: String,
+    val name: String,
+    val amountPaise: Long,
+)
+
+/**
+ * Computes [MonthSummary] for [group] from its already-loaded
+ * transaction items (no extra DB query) and, if the immediately
+ * preceding calendar month is present in [allMonths], its
+ * month-over-month deltas — mirroring [com.spendai.app.data.repository.InsightsRepository]'s
+ * `buildKpis` so the "vs previous" percentages read the same way
+ * they do on the Insights screen.
+ */
+private fun buildMonthSummary(group: TrackingMonthGroup, allMonths: List<TrackingMonthGroup>): MonthSummary? {
+    val currency = group.totals.firstOrNull()?.currency ?: return null
+    val debitItems = group.items.filter {
+        it.details.direction == TransactionDirection.DEBIT.name && it.details.currency == currency
+    }
+    val creditItems = group.items.filter {
+        it.details.direction == TransactionDirection.CREDIT.name && it.details.currency == currency
+    }
+    val spent = debitItems.sumOf { it.details.amountPaise }
+    val income = creditItems.sumOf { it.details.amountPaise }
+    val avg = if (debitItems.isNotEmpty()) spent / debitItems.size else 0L
+
+    val previousTotal = allMonths
+        .firstOrNull { it.yearMonth == group.yearMonth.minusMonths(1) }
+        ?.totals
+        ?.firstOrNull { it.currency == currency }
+    val spentDeltaPct = deltaPct(spent, previousTotal?.debitPaise ?: 0L)
+    val incomeDeltaPct = deltaPct(income, previousTotal?.creditPaise ?: 0L)
+
+    val topCategories = debitItems
+        .groupBy {
+            (it.details.categoryEmoji?.takeIf { e -> e.isNotBlank() } ?: "💸") to
+                (it.details.categoryName?.takeIf { n -> n.isNotBlank() } ?: "Uncategorised")
+        }
+        .map { (key, items) -> CategorySpend(key.first, key.second, items.sumOf { it.details.amountPaise }) }
+        .sortedByDescending { it.amountPaise }
+        .take(5)
+
+    return MonthSummary(
+        currency = currency,
+        spentPaise = spent,
+        incomePaise = income,
+        debitCount = debitItems.size,
+        avgPaise = avg,
+        spentDeltaPct = spentDeltaPct,
+        incomeDeltaPct = incomeDeltaPct,
+        topCategories = topCategories,
+    )
+}
+
+/** Same "signed percent change" formula as `InsightsRepository.deltaPct`; null when there's nothing to compare to. */
+private fun deltaPct(current: Long, previous: Long): Float? {
+    if (previous == 0L) return null
+    return ((current - previous).toDouble() / previous.toDouble() * 100.0).toFloat()
+}
+
+@Composable
+private fun MonthSummaryCard(summary: MonthSummary) {
+    StickerCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceSm)) {
+            SectionLabel("Summary")
+            KpiStrip(
+                spentLabel = stringResource(R.string.insights_kpi_spent),
+                spentValue = InsightsFormat.compactAmount(summary.spentPaise, summary.currency),
+                spentDelta = InsightsFormat.delta(summary.spentDeltaPct),
+                incomeLabel = stringResource(R.string.insights_kpi_income),
+                incomeValue = InsightsFormat.compactAmount(summary.incomePaise, summary.currency),
+                incomeDelta = InsightsFormat.delta(summary.incomeDeltaPct),
+                txnLabel = stringResource(R.string.insights_kpi_transactions),
+                txnValue = summary.debitCount.toString(),
+                avgLabel = stringResource(R.string.insights_kpi_avg),
+                avgValue = InsightsFormat.compactAmount(summary.avgPaise, summary.currency),
+            )
+            if (summary.topCategories.isNotEmpty()) {
+                SectionLabel("Top categories")
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpaceXs)) {
+                    summary.topCategories.forEach { category ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = category.emoji, style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.size(Dimens.SpaceXs))
+                                Text(
+                                    text = category.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            Text(
+                                text = "${InsightsFormat.amount(category.amountPaise, summary.currency)} ${summary.currency}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
