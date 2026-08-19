@@ -67,6 +67,23 @@
     <string name="home_theme_system">System default</string>
     <string name="home_theme_light">Light</string>
     <string name="home_theme_dark">Dark</string>
+    <string name="home_overflow_backup">Backup &amp; restore</string>
+
+    <!-- Backup & restore screen (whole-database) -->
+    <string name="backup_title">Backup &amp; restore</string>
+    <string name="backup_explainer_title">Your data, on this device</string>
+    <string name="backup_explainer_body">Export a full backup of every transaction, account, merchant, category, and setting to a file you control. Importing a backup completely replaces what\'s currently on this device.</string>
+    <string name="backup_export">Export full backup</string>
+    <string name="backup_import">Import full backup</string>
+    <string name="backup_exporting">Preparing backup…</string>
+    <string name="backup_validating">Checking backup file…</string>
+    <string name="backup_restoring">Restoring — the app will restart…</string>
+    <string name="backup_export_error">Couldn\'t create the backup. Please try again.</string>
+    <string name="backup_import_error">Couldn\'t restore this backup. Please try again.</string>
+    <string name="backup_ingestion_busy">An SMS ingestion run is in progress. Try again in a moment.</string>
+    <string name="backup_import_confirm_title">Replace all data?</string>
+    <string name="backup_import_confirm_body">This replaces ALL current data — transactions, accounts, merchants, categories, and settings — with the contents of this backup. This cannot be undone.</string>
+    <string name="backup_import_confirm_action">Replace everything</string>
     <string name="model_settings_title">Model settings</string>
     <string name="model_settings_subtitle">Change the LLM provider, model, and key used for SMS parsing. Your saved permissions and downloaded data are not affected.</string>
     <string name="model_settings_provider_label">LLM Provider</string>

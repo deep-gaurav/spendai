@@ -73,6 +73,7 @@ fun HomeScreen(
     onOpenSources: () -> Unit = {},
     onOpenModelSettings: () -> Unit = {},
     onOpenMerchants: () -> Unit = {},
+    onOpenBackup: () -> Unit = {},
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onSetThemeMode: (ThemeMode) -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
@@ -138,6 +139,14 @@ fun HomeScreen(
                                 themeDialogOpen = true
                             },
                             leadingIcon = { CartoonIcon(R.drawable.ic_review_cartoon, size = 24.dp) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.home_overflow_backup)) },
+                            onClick = {
+                                menuOpen = false
+                                onOpenBackup()
+                            },
+                            leadingIcon = { CartoonIcon(R.drawable.ic_cloud_download_cartoon, size = 24.dp) },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.home_overflow_rerun)) },

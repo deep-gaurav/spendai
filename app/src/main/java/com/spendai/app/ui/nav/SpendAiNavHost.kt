@@ -30,6 +30,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.spendai.app.R
 import com.spendai.app.ui.DeepLink
+import com.spendai.app.ui.backup.BackupScreen
 import com.spendai.app.ui.download.DownloadScreen
 import com.spendai.app.ui.edit.EditTransactionScreen
 import com.spendai.app.ui.home.HomeScreen
@@ -63,6 +64,7 @@ object Routes {
     const val REVIEW = "review"
     const val SOURCES = "sources"
     const val MODEL_SETTINGS = "modelSettings"
+    const val BACKUP = "backup"
     const val DEBUG_LOG = "debugLog"
     const val DEBUG_LOG_DETAIL = "debugLogDetail/{id}"
     fun debugLogDetail(id: Long) = "debugLogDetail/$id"
@@ -107,7 +109,7 @@ fun SpendAiNavHost(
                     current == Routes.TRANSACTIONS || current == Routes.INSIGHTS ||
                     current == Routes.INSIGHTS_AGENT || current == Routes.REVIEW ||
                     current == Routes.SOURCES || current == Routes.MERCHANTS ||
-                    current == Routes.MODEL_SETTINGS ||
+                    current == Routes.MODEL_SETTINGS || current == Routes.BACKUP ||
                     current == Routes.DEBUG_LOG || current.startsWith("debugLogDetail") ||
                     current == Routes.TRACKING || current.startsWith("tracking/")
                 ) {
@@ -186,6 +188,7 @@ fun SpendAiNavHost(
                     onOpenSources = { navController.navigate(Routes.SOURCES) },
                     onOpenModelSettings = { navController.navigate(Routes.MODEL_SETTINGS) },
                     onOpenMerchants = { navController.navigate(Routes.MERCHANTS) },
+                    onOpenBackup = { navController.navigate(Routes.BACKUP) },
                     themeMode = themeMode,
                     onSetThemeMode = onSetThemeMode,
                 )
@@ -250,6 +253,9 @@ fun SpendAiNavHost(
             }
             composable(Routes.MODEL_SETTINGS) {
                 ModelSettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.BACKUP) {
+                BackupScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.DEBUG_LOG) {
                 DebugLogScreen(

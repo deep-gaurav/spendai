@@ -43,6 +43,7 @@ import com.spendai.app.data.local.migrations.MIGRATION_6_7
 import com.spendai.app.data.local.migrations.MIGRATION_7_8
 import com.spendai.app.data.local.migrations.MIGRATION_8_9
 import com.spendai.app.data.local.migrations.MIGRATION_9_10
+import java.io.File
 
 /**
  * The single Room database for SpendAI.
@@ -156,6 +157,25 @@ abstract class AppDatabase : RoomDatabase() {
             instance ?: synchronized(this) {
                 instance ?: build(context).also { instance = it }
             }
+
+        /** The on-disk location of [DB_NAME], for callers that need to copy the raw file (see `FullBackupManager`). */
+        fun databaseFile(context: Context): File = context.getDatabasePath(DB_NAME)
+
+        /**
+         * Releases Room's open handle on the database and clears the
+         * singleton so the next [get] reopens from disk. Only meant
+         * for the full-data-restore flow, which overwrites [DB_NAME]
+         * out from under Room and therefore cannot keep the old
+         * handle alive — callers must not touch the DB again after
+         * this until the process has restarted (see `AppRestarter`),
+         * since every other singleton in `SpendAiApp` still holds a
+         * DAO derived from the now-closed instance.
+         */
+        @Synchronized
+        fun closeAndReset() {
+            instance?.close()
+            instance = null
+        }
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(
