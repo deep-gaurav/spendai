@@ -76,11 +76,10 @@ jobs:
 
       - name: Verify release APK is signed
         if: env.HAS_SIGNING_KEY == 'true'
-        continue-on-error: true
         run: |
           APKSIGNER="$(ls "${ANDROID_HOME}"/build-tools/*/apksigner | sort | tail -1)"
-          "$APKSIGNER" verify --print-certs "${{ steps.release.outputs.path }}" | grep -q "Signer #1" \
-            && echo "APK signed OK" || echo "APK not signed (warning only)"
+          "$APKSIGNER" verify --print-certs "${{ steps.release.outputs.path }}" \
+            && echo "APK signed OK" || (echo "APK not signed" && exit 1)
 
       - uses: actions/upload-artifact@v4
         with:
