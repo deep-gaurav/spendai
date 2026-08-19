@@ -78,16 +78,24 @@ jobs:
         if: env.HAS_SIGNING_KEY == 'true'
         run: |
           APKSIGNER="$(ls "${ANDROID_HOME}"/build-tools/*/apksigner | sort | tail -1)"
-          "$APKSIGNER" verify --print-certs "${{ steps.release.outputs.path }}" | grep -q "Signer #1" \
-            && echo "APK signed OK" || (echo "APK not signed" && exit 1)
+          # `apksigner verify`'s own exit code is the source of truth for
+          # "is this APK validly signed" — grepping --print-certs output
+          # for a literal string was fragile (any stderr-only failure,
+          # or an output-format change, reads as "not signed" with zero
+          # diagnostic info). Print certs for visibility, then verify.
+          "$APKSIGNER" verify --print-certs "${{ steps.release.outputs.path }}" || true
+          "$APKSIGNER" verify "${{ steps.release.outputs.path }}" \
+            && echo "APK signed OK" || (echo "APK signature verification failed" && exit 1)
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: spendai-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: spendai-release-apk
           path: app/build/outputs/apk/release/*.apk
